@@ -42,11 +42,30 @@ const connectDB = async () => {
   }
 };
 
+// Validate required environment variables
+if (!process.env.JWT_SECRET) {
+  console.error('⚠️  WARNING: JWT_SECRET is not set! Authentication will fail.');
+  console.error('Please set JWT_SECRET in your environment variables.');
+}
+
 // Start server regardless of MongoDB connection status
 // This allows the server to start and retry connection
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Validate environment variables
+  if (!process.env.JWT_SECRET) {
+    console.error('❌ JWT_SECRET is missing. Set it in Render environment variables.');
+  } else {
+    console.log('✅ JWT_SECRET is configured');
+  }
+  
+  if (!process.env.MONGO_URI || process.env.MONGO_URI.includes('localhost')) {
+    console.warn('⚠️  MONGO_URI appears to be using localhost. Make sure it points to MongoDB Atlas in production.');
+  } else {
+    console.log('✅ MONGO_URI is configured');
+  }
   
   // Attempt to connect to MongoDB
   const connected = await connectDB();
@@ -58,6 +77,7 @@ app.listen(PORT, async () => {
       const connected = await connectDB();
       if (connected) {
         clearInterval(retryInterval);
+        console.log('✅ MongoDB connection established!');
       }
     }, 5000);
   }

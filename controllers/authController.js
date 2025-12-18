@@ -3,6 +3,9 @@ const User = require('../models/User');
 
 // Helper to generate JWT
 const generateToken = (userId, role) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
   return jwt.sign(
     {
       id: userId,
@@ -52,7 +55,35 @@ exports.register = async (req, res) => {
     });
   } catch (error) {
     console.error('Register error:', error);
-    res.status(500).json({ message: 'Server error during registration' });
+    
+    // Provide more detailed error in development
+    const errorMessage = process.env.NODE_ENV === 'production' 
+      ? 'Server error during registration'
+      : error.message || 'Server error during registration';
+    
+    // Check for specific error types
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        error: Object.values(error.errors).map(e => e.message).join(', ')
+      });
+    }
+    
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'User with that email already exists' });
+    }
+    
+    if (error.message.includes('JWT_SECRET')) {
+      return res.status(500).json({ 
+        message: 'Server configuration error: JWT_SECRET not set',
+        error: errorMessage 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Server error during registration',
+      error: errorMessage 
+    });
   }
 };
 
@@ -93,7 +124,22 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login' });
+    
+    const errorMessage = process.env.NODE_ENV === 'production' 
+      ? 'Server error during login'
+      : error.message || 'Server error during login';
+    
+    if (error.message.includes('JWT_SECRET')) {
+      return res.status(500).json({ 
+        message: 'Server configuration error: JWT_SECRET not set',
+        error: errorMessage 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Server error during login',
+      error: errorMessage 
+    });
   }
 };
 
