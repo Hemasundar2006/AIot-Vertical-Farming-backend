@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: vertical-farm-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # Add MONGO_URI in Render dashboard - don't commit secrets to git!
+      # - key: MONGO_URI
+      #   sync: false  # Set this manually in Render dashboard
+
