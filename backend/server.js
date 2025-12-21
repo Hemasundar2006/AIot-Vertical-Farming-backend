@@ -2,69 +2,66 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
+
+/* Middleware */
 app.use(cors());
 app.use(express.json());
 
-/* ================= STORAGE ================= */
-let sensorData = {
-  1: null,
-  2: null,
-  3: null
-};
+/* In-memory storage (latest data per zone) */
+let sensorData = {};
 
-/* ================= ROOT ================= */
+/* Health check */
 app.get("/", (req, res) => {
-  res.json({ message: "AIoT Vertical Farming API is running" });
+  res.send("ESP32 Backend Running");
 });
 
-/* ================= POST (NO SLASH) ================= */
-app.post("/api/sensor-data", handleSensorData);
+/* ===== POST: ESP32 sends data ===== */
+app.post("/api/sensor-data", (req, res) => {
+  const { zone, soil, temperature, humidity, motor } = req.body;
 
-/* ================= POST (WITH SLASH) ================= */
-app.post("/api/sensor-data/", handleSensorData);
-
-/* ================= GET (NO SLASH) ================= */
-app.get("/api/sensor-data", (req, res) => {
-  res.json(sensorData);
-});
-
-/* ================= GET (WITH SLASH) ================= */
-app.get("/api/sensor-data/", (req, res) => {
-  res.json(sensorData);
-});
-
-/* ================= HANDLER ================= */
-function handleSensorData(req, res) {
-  const {
-    zone,
-    soil,
-    temperature,
-    humidity,
-    gas,
-    light,
-    motor
-  } = req.body;
-
-  if (!zone) {
-    return res.status(400).json({ error: "zone is required" });
+  // ✅ Validate payload
+  if (
+    zone === undefined ||
+    soil === undefined ||
+    temperature === undefined ||
+    humidity === undefined ||
+    motor === undefined
+  ) {
+    return res.status(400).json({
+      error: "Invalid payload",
+      expected: {
+        zone: "number",
+        soil: "number",
+        temperature: "number",
+        humidity: "number",
+        motor: "boolean"
+      }
+    });
   }
 
+  // ✅ Store data
   sensorData[zone] = {
     soil,
     temperature,
     humidity,
-    gas,
-    light,
     motor,
-    time: new Date().toISOString()
+    timestamp: new Date().toISOString()
   };
 
-  console.log("📡 Data received from zone", zone);
-  res.status(200).json({ status: "received" });
-}
+  console.log("📡 Data received:", sensorData[zone]);
 
-/* ================= START ================= */
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  res.status(200).json({
+    status: "success",
+    message: "Sensor data received"
+  });
+});
+
+/* ===== GET: Dashboard fetches data ===== */
+app.get("/api/sensor-data", (req, res) => {
+  res.json(sensorData);
+});
+
+/* Start server */
+app.listen(5000, "0.0.0.0", () => {
+  console.log("🚀 Backend running on port 5000");
 });
