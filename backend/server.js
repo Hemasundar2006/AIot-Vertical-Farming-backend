@@ -14,13 +14,27 @@ let sensorData = {
 
 /* ================= ROOT ================= */
 app.get("/", (req, res) => {
-  res.json({
-    message: "AIoT Vertical Farming API is running"
-  });
+  res.json({ message: "AIoT Vertical Farming API is running" });
 });
 
-/* ================= POST (ESP32) ================= */
-app.post("/api/sensor-data", (req, res) => {
+/* ================= POST (NO SLASH) ================= */
+app.post("/api/sensor-data", handleSensorData);
+
+/* ================= POST (WITH SLASH) ================= */
+app.post("/api/sensor-data/", handleSensorData);
+
+/* ================= GET (NO SLASH) ================= */
+app.get("/api/sensor-data", (req, res) => {
+  res.json(sensorData);
+});
+
+/* ================= GET (WITH SLASH) ================= */
+app.get("/api/sensor-data/", (req, res) => {
+  res.json(sensorData);
+});
+
+/* ================= HANDLER ================= */
+function handleSensorData(req, res) {
   const {
     zone,
     soil,
@@ -46,13 +60,8 @@ app.post("/api/sensor-data", (req, res) => {
   };
 
   console.log("📡 Data received from zone", zone);
-  res.json({ status: "received" });
-});
-
-/* ================= GET (Dashboard) ================= */
-app.get("/api/sensor-data", (req, res) => {
-  res.json(sensorData);
-});
+  res.status(200).json({ status: "received" });
+}
 
 /* ================= START ================= */
 const PORT = process.env.PORT || 5000;
