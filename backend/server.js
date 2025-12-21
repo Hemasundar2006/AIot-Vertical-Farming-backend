@@ -2,44 +2,62 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
+/* ===================== MIDDLEWARE ===================== */
 app.use(cors());
 app.use(express.json());
 
-const sensorData = {};
+/* ===================== IN-MEMORY STORAGE ===================== */
+let sensorData = {
+  1: null,
+  2: null,
+  3: null
+};
 
-// health check
-app.get("/", (req, res) => {
-  res.send("Backend running");
-});
-
-// POST route (THIS IS CRITICAL)
+/* ===================== POST: ESP32 → BACKEND ===================== */
 app.post("/api/sensor-data", (req, res) => {
-  const { deviceId, zoneId, soil, temperature, humidity, gas, light } = req.body;
-
-  if (!zoneId) {
-    return res.status(400).json({ error: "zoneId missing" });
-  }
-
-  sensorData[zoneId] = {
-    deviceId,
+  const {
+    zone,
     soil,
     temperature,
     humidity,
     gas,
     light,
-    timestamp: new Date()
+    motor
+  } = req.body;
+
+  // Basic validation
+  if (!zone) {
+    return res.status(400).json({ error: "Zone is required" });
+  }
+
+  sensorData[zone] = {
+    soil,
+    temperature,
+    humidity,
+    gas,
+    light,
+    motor,
+    timestamp: new Date().toISOString()
   };
 
-  console.log("📥 DATA RECEIVED:", zoneId);
+  console.log(`📡 Data received from Zone ${zone}`, sensorData[zone]);
 
-  res.status(200).json({ success: true });
+  res.status(200).json({ status: "received" });
 });
 
-// GET route
-app.get("/api/sensor-data/:id", (req, res) => {
-  res.json(sensorData[req.params.id] || {});
+/* ===================== GET: WEBSITE / DASHBOARD ===================== */
+app.get("/api/sensor-data", (req, res) => {
+  res.status(200).json(sensorData);
 });
 
-app.listen(PORT, () => console.log("Server started"));
+/* ===================== HEALTH CHECK ===================== */
+app.get("/", (req, res) => {
+  res.send("✅ ESP32 Smart Farming Backend Running");
+});
+
+/* ===================== START SERVER ===================== */
+const PORT = 5000;
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Backend running on port ${PORT}`);
+});
