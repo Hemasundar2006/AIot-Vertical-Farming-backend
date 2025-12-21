@@ -17,43 +17,34 @@ app.get("/", (req, res) => {
 
 /* ===== POST: ESP32 sends data ===== */
 app.post("/api/sensor-data", (req, res) => {
-  const { zone, soil, temperature, humidity, motor } = req.body;
+  try {
+    const { zone, soil, temperature, humidity, motor } = req.body;
 
-  // ✅ Validate payload
-  if (
-    zone === undefined ||
-    soil === undefined ||
-    temperature === undefined ||
-    humidity === undefined ||
-    motor === undefined
-  ) {
-    return res.status(400).json({
-      error: "Invalid payload",
-      expected: {
-        zone: "number",
-        soil: "number",
-        temperature: "number",
-        humidity: "number",
-        motor: "boolean"
-      }
-    });
+    if (
+      zone === undefined ||
+      soil === undefined ||
+      temperature === undefined ||
+      humidity === undefined ||
+      motor === undefined
+    ) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    sensorData[zone] = {
+      soil,
+      temperature,
+      humidity,
+      motor,
+      time: new Date().toISOString()
+    };
+
+    console.log("📡 Data received:", sensorData[zone]);
+    res.status(200).json({ status: "ok" });
+
+  } catch (err) {
+    console.error("❌ JSON error:", err.message);
+    res.status(400).json({ error: "Bad JSON" });
   }
-
-  // ✅ Store data
-  sensorData[zone] = {
-    soil,
-    temperature,
-    humidity,
-    motor,
-    timestamp: new Date().toISOString()
-  };
-
-  console.log("📡 Data received:", sensorData[zone]);
-
-  res.status(200).json({
-    status: "success",
-    message: "Sensor data received"
-  });
 });
 
 /* ===== GET: Dashboard fetches data ===== */
