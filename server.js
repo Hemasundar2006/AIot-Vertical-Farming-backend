@@ -31,25 +31,35 @@ let farmData = {
   last_updated: 'No data',
 };
 
-// Main Update Endpoint
+// ESP32 sends the bulk data here
 app.post('/temperature', (req, res) => {
-  farmData = { ...req.body, last_updated: new Date().toLocaleTimeString() };
-  console.log('Farm Status Updated:', farmData.last_updated);
+  farmData = {
+    ...req.body,
+    last_updated: new Date().toLocaleTimeString(),
+  };
+  console.log('Update received for all zones');
   res.status(200).json({ status: 'success' });
 });
 
-// Get All Data
-app.get('/get_temperature', (req, res) => res.json(farmData));
+// NEW: Get data for a specific zone by its numeric ID
+// URL Example: http://192.168.29.123:5000/api/zone/1
+app.get('/api/zone/:id', (req, res) => {
+  const zoneId = `zone${req.params.id}`; // Converts '1' to 'zone1'
 
-// Get Specific Zone Data by ID (e.g. /data/zone1)
-app.get('/data/:id', (req, res) => {
-  const id = req.params.id;
-  if (farmData[id]) {
-    res.json({ id, ...farmData[id], last_updated: farmData.last_updated });
+  if (farmData[zoneId]) {
+    res.json({
+      id: req.params.id,
+      zoneName: zoneId,
+      data: farmData[zoneId],
+      last_updated: farmData.last_updated,
+    });
   } else {
-    res.status(404).json({ error: 'Zone not found' });
+    res.status(404).json({ error: 'Zone ID not found' });
   }
 });
+
+// Get everything
+app.get('/get_temperature', (req, res) => res.json(farmData));
 
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 5000;
@@ -80,7 +90,7 @@ if (!process.env.JWT_SECRET) {
 // Start server regardless of MongoDB connection status
 // This allows the server to start and retry connection
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`IoT Server running on http://192.168.29.123:${PORT}`);
+  console.log(`Server running at http://192.168.29.123:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Validate environment variables
