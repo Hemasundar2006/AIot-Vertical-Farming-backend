@@ -23,38 +23,41 @@ app.get('/', (req, res) => {
   res.json({ message: 'AIoT Vertical Farming API is running' });
 });
 
-// ===== Main storage =====
-let farmData = {
-  zone1: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
-  zone2: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
-  zone3: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
-  last_updated: 'No data',
+// ===== Unique IDs assigned to each zone =====
+const ZONE_IDS = {
+  zone1: '6587ab12c3456e7890123451',
+  zone2: '6587ab12c3456e7890123452',
+  zone3: '6587ab12c3456e7890123453',
 };
 
-// ESP32 sends the bulk data here
+let farmData = {};
+
 app.post('/temperature', (req, res) => {
+  const incoming = req.body;
+
+  // Restructure the data to include IDs inside each zone object
   farmData = {
-    ...req.body,
+    zone1: { _id: ZONE_IDS.zone1, ...incoming.zone1 },
+    zone2: { _id: ZONE_IDS.zone2, ...incoming.zone2 },
+    zone3: { _id: ZONE_IDS.zone3, ...incoming.zone3 },
     last_updated: new Date().toLocaleTimeString(),
   };
-  console.log('Update received for all zones');
+
+  console.log('Updated Data with Object IDs:', JSON.stringify(farmData, null, 2));
   res.status(200).json({ status: 'success' });
 });
 
-// NEW: Get data for a specific zone by its numeric ID
-// URL Example: http://192.168.29.123:5000/api/zone/1
-app.get('/api/zone/:id', (req, res) => {
-  const zoneId = `zone${req.params.id}`; // Converts '1' to 'zone1'
+app.get('/get_temperature', (req, res) => {
+  res.json(farmData);
+});
 
-  if (farmData[zoneId]) {
-    res.json({
-      id: req.params.id,
-      zoneName: zoneId,
-      data: farmData[zoneId],
-      last_updated: farmData.last_updated,
-    });
+// Route to get a specific zone by its numeric ID (1, 2, or 3)
+app.get('/api/zone/:id', (req, res) => {
+  const zoneKey = `zone${req.params.id}`;
+  if (farmData[zoneKey]) {
+    res.json(farmData[zoneKey]);
   } else {
-    res.status(404).json({ error: 'Zone ID not found' });
+    res.status(404).json({ error: 'Zone not found' });
   }
 });
 
