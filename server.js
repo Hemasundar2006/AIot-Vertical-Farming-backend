@@ -18,8 +18,37 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/data', dataRoutes);
 
+// Simple health check
 app.get('/', (req, res) => {
   res.json({ message: 'AIoT Vertical Farming API is running' });
+});
+
+// ===== Main storage =====
+let farmData = {
+  zone1: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
+  zone2: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
+  zone3: { soil: 0, temp: 0, hum: 0, gas: 0, light: 0, relay: 'OFF' },
+  last_updated: 'No data',
+};
+
+// Main Update Endpoint
+app.post('/temperature', (req, res) => {
+  farmData = { ...req.body, last_updated: new Date().toLocaleTimeString() };
+  console.log('Farm Status Updated:', farmData.last_updated);
+  res.status(200).json({ status: 'success' });
+});
+
+// Get All Data
+app.get('/get_temperature', (req, res) => res.json(farmData));
+
+// Get Specific Zone Data by ID (e.g. /data/zone1)
+app.get('/data/:id', (req, res) => {
+  const id = req.params.id;
+  if (farmData[id]) {
+    res.json({ id, ...farmData[id], last_updated: farmData.last_updated });
+  } else {
+    res.status(404).json({ error: 'Zone not found' });
+  }
 });
 
 // Connect to MongoDB and start server
@@ -50,8 +79,8 @@ if (!process.env.JWT_SECRET) {
 
 // Start server regardless of MongoDB connection status
 // This allows the server to start and retry connection
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`IoT Server running on http://192.168.29.123:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Validate environment variables
@@ -91,5 +120,4 @@ mongoose.connection.on('disconnected', () => {
 mongoose.connection.on('error', (err) => {
   console.error('MongoDB connection error:', err);
 });
-
 
