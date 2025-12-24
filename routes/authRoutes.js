@@ -4,8 +4,13 @@ const { checkDBConnection } = require('../middleware/dbMiddleware');
 
 const router = express.Router();
 
-router.post('/register', checkDBConnection, register);
-router.post('/login', checkDBConnection, login);
+// Async wrapper to catch errors
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+router.post('/register', checkDBConnection, asyncHandler(register));
+router.post('/login', checkDBConnection, asyncHandler(login));
 
 module.exports = router;
 

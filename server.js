@@ -64,6 +64,41 @@ app.get('/api/zone/:id', (req, res) => {
 // Get everything
 app.get('/get_temperature', (req, res) => res.json(farmData));
 
+// Global error handler middleware (must be after all routes)
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  console.error('Error stack:', err.stack);
+  console.error('Error name:', err.name);
+  console.error('Error message:', err.message);
+
+  // Don't send response if headers already sent
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  // Default error
+  const statusCode = err.statusCode || 500;
+  const message = err.message || 'Internal Server Error';
+
+  res.status(statusCode).json({
+    message: process.env.NODE_ENV === 'production' 
+      ? 'Server error' 
+      : message,
+    error: process.env.NODE_ENV === 'production' 
+      ? 'An error occurred' 
+      : err.stack,
+    ...(process.env.NODE_ENV !== 'production' && { details: err }),
+  });
+});
+
+// 404 handler for undefined routes
+app.use((req, res) => {
+  res.status(404).json({
+    message: 'Route not found',
+    path: req.originalUrl,
+  });
+});
+
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/vertical_farm';
