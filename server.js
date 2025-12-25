@@ -7,6 +7,7 @@ dotenv.config();
 
 const authRoutes = require('./routes/authRoutes');
 const dataRoutes = require('./routes/dataRoutes');
+const chatbotRoutes = require('./routes/chatbotRoutes');
 
 const app = express();
 
@@ -17,6 +18,8 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/data', dataRoutes);
+app.use('/api/chatbot', chatbotRoutes);
+app.use('/chatbot', chatbotRoutes); // Alternative route for compatibility
 
 // Simple health check
 app.get('/', (req, res) => {
