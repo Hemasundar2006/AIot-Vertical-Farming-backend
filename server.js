@@ -8,6 +8,7 @@ dotenv.config();
 const authRoutes = require('./routes/authRoutes');
 const dataRoutes = require('./routes/dataRoutes');
 const chatbotRoutes = require('./routes/chatbotRoutes');
+const cropRoutes = require('./routes/cropRoutes');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/chatbot', chatbotRoutes); // Alternative route for compatibility
+app.use('/api/crop', cropRoutes);
 
 // Simple health check
 app.get('/', (req, res) => {

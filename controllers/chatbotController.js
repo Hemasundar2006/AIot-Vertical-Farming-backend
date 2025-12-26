@@ -140,14 +140,14 @@ exports.chat = async (req, res) => {
 // @route   GET /api/chatbot/health
 // @access  Public
 exports.healthCheck = (req, res) => {
-  const isConfigured = !!process.env.GEMINI_API_KEY;
+  const isConfigured = !!process.env.VITE_GEMINI_API_KEY;
 
   res.status(200).json({
     service: 'chatbot',
     status: isConfigured ? 'configured' : 'not_configured',
     message: isConfigured
       ? 'Chatbot service is ready'
-      : 'GEMINI_API_KEY is not set',
+      : 'VITE_GEMINI_API_KEY is not set',
   });
 };
 
