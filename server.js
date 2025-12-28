@@ -26,9 +26,9 @@ app.use('/chatbot', chatbotRoutes); // Alternative route for compatibility
 app.use('/api/crop', cropRoutes);
 app.use('/api/sensor', sensorRoutes);
 
-// Simple health check
+/* ================= HEALTH CHECK ================= */
 app.get('/', (req, res) => {
-  res.json({ message: 'AIoT Vertical Farming API is running' });
+  res.send("✅ AIoT Vertical Farming Backend is Running");
 });
 
 // ===== Unique IDs assigned to each zone =====
@@ -38,70 +38,103 @@ const ZONE_IDS = {
   zone3: '6587ab12c3456e7890123453',
 };
 
-let farmData = {};
+let latestData = {
+  zone1: {},
+  zone2: {},
+  zone3: {},
+  timestamp: null
+};
 
 app.post('/temperature', async (req, res) => {
   try {
-    const incoming = req.body;
+    const { zone1, zone2, zone3 } = req.body;
 
-    // Restructure the data to include IDs inside each zone object
-    farmData = {
-      zone1: { _id: ZONE_IDS.zone1, ...incoming.zone1 },
-      zone2: { _id: ZONE_IDS.zone2, ...incoming.zone2 },
-      zone3: { _id: ZONE_IDS.zone3, ...incoming.zone3 },
-      last_updated: new Date().toLocaleTimeString(),
+    if (!zone1 || !zone2 || !zone3) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid ESP32 payload"
+      });
+    }
+
+    latestData = {
+      zone1: {
+        soil: zone1.soil,
+        temp: zone1.temp,
+        hum: zone1.hum,
+        light: zone1.light,
+        gas: zone1.gas,
+        motor: zone1.motor
+      },
+      zone2: {
+        soil: zone2.soil,
+        temp: zone2.temp,
+        hum: zone2.hum,
+        light: zone2.light,
+        gas: zone2.gas,
+        motor: zone2.motor
+      },
+      zone3: {
+        soil: zone3.soil,
+        temp: zone3.temp,
+        hum: zone3.hum,
+        light: zone3.light,
+        gas: zone3.gas,
+        motor: zone3.motor
+      },
+      timestamp: new Date()
     };
 
-    console.log('Updated Data with Object IDs:', JSON.stringify(farmData, null, 2));
+    console.log("📡 ESP32 DATA RECEIVED:");
+    console.log(JSON.stringify(latestData, null, 2));
 
     // Save to MongoDB for historical data (only if MongoDB is connected)
     if (mongoose.connection.readyState === 1) {
       const savePromises = [];
 
       // Save data for each zone
-      if (incoming.zone1) {
+      if (zone1) {
         savePromises.push(
           SensorData.create({
             zone: 'zone1',
             zoneId: ZONE_IDS.zone1,
-            soil: incoming.zone1.soil || 0,
-            temp: incoming.zone1.temp || 0,
-            hum: incoming.zone1.hum || 0,
-            gas: incoming.zone1.gas || 0,
-            light: incoming.zone1.light || 0,
-            relay: incoming.zone1.relay || 'OFF',
+            soil: zone1.soil || 0,
+            temp: zone1.temp || 0,
+            hum: zone1.hum || 0,
+            gas: zone1.gas || 0,
+            light: zone1.light || 0,
+            relay: zone1.motor || 'OFF',
             timestamp: new Date(),
           })
         );
       }
 
-      if (incoming.zone2) {
+      if (zone2) {
         savePromises.push(
           SensorData.create({
             zone: 'zone2',
             zoneId: ZONE_IDS.zone2,
-            soil: incoming.zone2.soil || 0,
-            temp: incoming.zone2.temp || 0,
-            hum: incoming.zone2.hum || 0,
-            gas: incoming.zone2.gas || 0,
-            light: incoming.zone2.light || 0,
-            relay: incoming.zone2.relay || 'OFF',
+            soil: zone2.soil || 0,
+            temp: zone2.temp || 0,
+            hum: zone2.hum || 0,
+            gas: zone2.gas || 0,
+            light: zone2.light || 0,
+            relay: zone2.motor || 'OFF',
             timestamp: new Date(),
           })
         );
       }
 
-      if (incoming.zone3) {
+      if (zone3) {
         savePromises.push(
           SensorData.create({
             zone: 'zone3',
             zoneId: ZONE_IDS.zone3,
-            soil: incoming.zone3.soil || 0,
-            temp: incoming.zone3.temp || 0,
-            hum: incoming.zone3.hum || 0,
-            gas: incoming.zone3.gas || 0,
-            light: incoming.zone3.light || 0,
-            relay: incoming.zone3.relay || 'OFF',
+            soil: zone3.soil || 0,
+            temp: zone3.temp || 0,
+            hum: zone3.hum || 0,
+            gas: zone3.gas || 0,
+            light: zone3.light || 0,
+            relay: zone3.motor || 'OFF',
             timestamp: new Date(),
           })
         );
@@ -113,30 +146,37 @@ app.post('/temperature', async (req, res) => {
       });
     }
 
-    res.status(200).json({ status: 'success' });
-  } catch (error) {
-    console.error('Error processing temperature data:', error);
-    // Still return success to ESP32 even if DB save fails
-    res.status(200).json({ status: 'success', warning: 'Data saved but historical logging may have failed' });
+    res.status(200).json({
+      success: true,
+      message: "Sensor data stored successfully"
+    });
+
+  } catch (err) {
+    console.error("❌ Server Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
   }
+});
+
+/* ================= DASHBOARD GET API ================= */
+app.get('/get-data', (req, res) => {
+  res.status(200).json(latestData);
 });
 
 app.get('/get_temperature', (req, res) => {
-  res.json(farmData);
+  res.status(200).json(latestData);
 });
 
-// Route to get a specific zone by its numeric ID (1, 2, or 3)
-app.get('/api/zone/:id', (req, res) => {
-  const zoneKey = `zone${req.params.id}`;
-  if (farmData[zoneKey]) {
-    res.json(farmData[zoneKey]);
-  } else {
-    res.status(404).json({ error: 'Zone not found' });
+/* ================= ZONE-WISE APIs (OPTIONAL) ================= */
+app.get('/zone/:id', (req, res) => {
+  const zone = `zone${req.params.id}`;
+  if (!latestData[zone]) {
+    return res.status(404).json({ message: "Zone not found" });
   }
+  res.json(latestData[zone]);
 });
-
-// Get everything
-app.get('/get_temperature', (req, res) => res.json(farmData));
 
 // Global error handler middleware (must be after all routes)
 app.use((err, req, res, next) => {
@@ -202,7 +242,7 @@ if (!process.env.JWT_SECRET) {
 // Start server regardless of MongoDB connection status
 // This allows the server to start and retry connection
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server running at http://192.168.29.123:${PORT}`);
+  console.log(`🚀 Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
   // Validate environment variables
