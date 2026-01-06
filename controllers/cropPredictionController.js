@@ -191,36 +191,57 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
   // Connect to Gradio API (sumiyon/water_only space)
   const client = await Client.connect('sumiyon/water_only');
 
-  // Make prediction - API expects all parameters as strings
-  // Year is always "2025"
-  const predictionParams = {
+  // Try to inspect API info to understand expected parameter types
+  try {
+    const apiInfo = await client.view_api();
+    console.log('Gradio API info:', JSON.stringify(apiInfo, null, 2));
+  } catch (apiInfoError) {
+    console.log('Could not fetch API info:', apiInfoError.message);
+  }
+
+  // Make prediction - Try different year formats due to Gradio type mismatch issue
+  // The error suggests Gradio dropdown might expect number or index instead of string
+  const baseParams = {
     crop: String(crop),
     soil: String(soil),
     month: String(month),
     season: String(season),
-    year: "2025", // Hardcoded to 2025
     temperature: String(temperature),
   };
 
-  console.log('Sending prediction params:', predictionParams);
-  console.log('Year parameter:', { value: predictionParams.year, type: typeof predictionParams.year });
+  // Try year as number first (2025), then as string ("2025"), then as index (0)
+  const yearFormats = [
+    { year: 2025, format: 'number' },
+    { year: "2025", format: 'string' },
+    { year: 0, format: 'index' }
+  ];
 
-  // IMPORTANT: The endpoint name must match the Gradio function name.
-  // The correct endpoint for the sumiyon/water_only space is `/predict_water`.
   let result;
-  try {
-    result = await client.predict('/predict_water', predictionParams);
-  } catch (predictError) {
-    console.error('Gradio predict error:', predictError);
-    console.error('Error details:', {
-      message: predictError.message,
-      type: predictError.type,
-      stage: predictError.stage,
-      title: predictError.title,
-      error: predictError.error
-    });
-    // Re-throw with more context
-    throw predictError;
+  let lastError = null;
+
+  for (const yearFormat of yearFormats) {
+    try {
+      const predictionParams = {
+        ...baseParams,
+        year: yearFormat.year,
+      };
+
+      console.log(`Trying year as ${yearFormat.format}:`, { value: predictionParams.year, type: typeof predictionParams.year });
+      
+      result = await client.predict('/predict_water', predictionParams);
+      console.log(`Success with year format: ${yearFormat.format}`);
+      break; // Success, exit loop
+    } catch (predictError) {
+      lastError = predictError;
+      console.log(`Failed with year as ${yearFormat.format}:`, predictError.message);
+      // Continue to next format
+    }
+  }
+
+  // If all formats failed, throw the last error
+  if (!result) {
+    console.error('All year formats failed. Last error:', lastError);
+    throw lastError || new Error('Failed to predict with any year format');
   }
 
   // Extract the prediction result
