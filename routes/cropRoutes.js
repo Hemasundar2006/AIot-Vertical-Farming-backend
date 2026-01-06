@@ -1,5 +1,12 @@
 const express = require('express');
-const { predictCrop, predictWater, predictWaterGet, getOptions } = require('../controllers/cropPredictionController');
+const {
+  predictCrop,
+  predictWater,
+  predictWaterGet,
+  predictHorizontal,
+  predictVertical,
+  getOptions,
+} = require('../controllers/cropPredictionController');
 
 const router = express.Router();
 
@@ -19,6 +26,10 @@ router.post('/predict-water', asyncHandler(predictWater));
 
 // Predict water requirements endpoint (GET)
 router.get('/predict-water', asyncHandler(predictWaterGet));
+
+// Horizontal vs Vertical crop prediction endpoints
+router.post('/predict-horizontal', asyncHandler(predictHorizontal));
+router.post('/predict-vertical', asyncHandler(predictVertical));
 
 module.exports = router;
 
