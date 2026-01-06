@@ -204,7 +204,9 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
 
   console.log('Sending prediction params:', predictionParams);
 
-  const result = await client.predict('/predict-water', predictionParams);
+  // IMPORTANT: The endpoint name must match the Gradio function name.
+  // The correct endpoint for the sumiyon/water_only space is `/predict_water`.
+  const result = await client.predict('/predict_water', predictionParams);
 
   // Extract the prediction result
   const waterPrediction = Array.isArray(result.data) ? result.data[0] : result.data;
