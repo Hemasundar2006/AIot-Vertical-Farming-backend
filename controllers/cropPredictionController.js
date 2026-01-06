@@ -281,7 +281,8 @@ exports.predictWater = async (req, res) => {
     }
 
     // Year is fixed to 2025 (ignore user input)
-    const fixedYear = "2025";
+    // Gradio API expects year as a number, not a string
+    const fixedYear = 2025;
 
     // Import Gradio client
     const gradioClient = require('@gradio/client');
@@ -291,6 +292,7 @@ exports.predictWater = async (req, res) => {
     const client = await Client.connect('sumiyon/water_only');
 
     // Make prediction
+    // Note: Year must be sent as a number (2025), not a string ("2025")
     const result = await client.predict('/predict_water', {
       crop: String(crop),
       soil: String(soil),
