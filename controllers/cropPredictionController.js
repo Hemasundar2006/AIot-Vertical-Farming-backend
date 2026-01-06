@@ -204,8 +204,8 @@ exports.predictWater = async (req, res) => {
       });
     }
 
-    // Validate year (convert to string as API expects string)
-    const yearStr = typeof year === 'number' ? year.toString() : year;
+    // Ensure year is a string (Gradio API is strict about types)
+    const yearStr = String(year);
 
     // Import Gradio client
     let Client;
@@ -225,14 +225,19 @@ exports.predictWater = async (req, res) => {
     const client = await Client.connect('sumiyon/water_only');
 
     // Make prediction - API expects all parameters as strings
-    const result = await client.predict('/predict_water', {
-      crop: crop.toString(),
-      soil: soil.toString(),
-      month: month.toString(),
-      season: season.toString(),
-      year: yearStr,
-      temperature: temperature.toString(),
-    });
+    // Ensure all values are explicitly converted to strings
+    const predictionParams = {
+      crop: String(crop),
+      soil: String(soil),
+      month: String(month),
+      season: String(season),
+      year: String(yearStr), // Double ensure it's a string
+      temperature: String(temperature),
+    };
+
+    console.log('Sending prediction params:', predictionParams);
+
+    const result = await client.predict('/predict_water', predictionParams);
 
     // Extract the prediction result
     // Gradio returns data in result.data array, first element is the prediction
@@ -253,9 +258,24 @@ exports.predictWater = async (req, res) => {
   } catch (error) {
     console.error('Water prediction error:', error);
     console.error('Error stack:', error.stack);
+    console.error('Error type:', error.type);
+    console.error('Error message:', error.message);
 
-    // Handle specific Gradio API errors
-    if (error.message && error.message.includes('connect')) {
+    // Handle Gradio API specific errors
+    if (error.type === 'status' || error.success === false) {
+      const errorMsg = error.message || 'Prediction service returned an error';
+      return res.status(400).json({
+        message: 'Water prediction failed',
+        error: errorMsg,
+        details: process.env.NODE_ENV !== 'production' ? {
+          endpoint: error.endpoint,
+          stage: error.stage,
+        } : undefined,
+      });
+    }
+
+    // Handle connection errors
+    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
       return res.status(503).json({
         message: 'Water prediction service unavailable',
         error: 'Unable to connect to prediction service. Please try again later.',
@@ -266,7 +286,7 @@ exports.predictWater = async (req, res) => {
       message: 'Server error during water prediction',
       error: process.env.NODE_ENV === 'production'
         ? 'An error occurred while processing your request'
-        : error.message,
+        : error.message || 'Unknown error occurred',
     });
   }
 };
