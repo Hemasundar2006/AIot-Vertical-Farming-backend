@@ -204,7 +204,7 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
 
   console.log('Sending prediction params:', predictionParams);
 
-  const result = await client.predict('/predict_water', predictionParams);
+  const result = await client.predict('/predict-water', predictionParams);
 
   // Extract the prediction result
   const waterPrediction = Array.isArray(result.data) ? result.data[0] : result.data;
@@ -394,7 +394,9 @@ exports.getOptions = (req, res) => {
       ],
       soilTypes: ['Clay', 'Sandy', 'Loamy'],
       temperatures: [18, 20, 22, 25, 28, 30, 32, 35],
-      year: "2025", // Fixed to 2025 - not user selectable
+      // Year options for dropdown (currently fixed to 2025)
+      years: ['2025'],
+      year: "2025", // Fixed to 2025 in the prediction service
     },
   });
 };
