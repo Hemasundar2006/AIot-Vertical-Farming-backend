@@ -403,3 +403,75 @@ exports.getOptions = (req, res) => {
   });
 };
 
+// @desc    Stream YouTube video through server to avoid client IP/token issues
+// @route   GET /api/stream/youtube?url=<youtube_url>
+// @access  Public (apply auth/rate-limit in router as needed)
+exports.streamYouTube = async (req, res) => {
+  const youtubeUrl = req.query.url;
+
+  const isValidYouTubeUrl = (url) => {
+    if (!url) return false;
+    try {
+      const u = new URL(url);
+      if (!/^(www\.)?youtube\.com$|^youtu\.be$/i.test(u.hostname)) return false;
+      return u.searchParams.has('v') || u.pathname.startsWith('/shorts/');
+    } catch (err) {
+      return false;
+    }
+  };
+
+  if (!isValidYouTubeUrl(youtubeUrl)) {
+    return res.status(400).json({ error: 'Invalid YouTube URL' });
+  }
+
+  // Lazy-load ytdl-core to avoid dependency errors during startup
+  let ytdl;
+  try {
+    ytdl = require('ytdl-core');
+  } catch (err) {
+    console.error('Failed to load ytdl-core:', err);
+    return res.status(500).json({ error: 'Streaming dependency missing' });
+  }
+
+  try {
+    const info = await ytdl.getInfo(youtubeUrl);
+    const format =
+      info.formats.find((f) => f.isHLS || f.mimeType?.includes('application/vnd.apple.mpegurl')) ||
+      ytdl.chooseFormat(info.formats, { quality: 'highestvideo' });
+
+    if (!format?.url) {
+      return res.status(404).json({ error: 'No playable stream found' });
+    }
+
+    res.setHeader('Content-Type', format.mimeType || 'video/mp4');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const stream = ytdl.downloadFromInfo(info, {
+      format,
+      filter: 'audioandvideo',
+      highWaterMark: 1 << 25, // 32MB buffer to reduce stutter
+    });
+
+    stream.on('error', (err) => {
+      console.error('ytdl stream error:', err);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Upstream stream failed' });
+      } else {
+        res.destroy(err);
+      }
+    });
+
+    req.on('close', () => stream.destroy());
+    stream.pipe(res);
+  } catch (err) {
+    console.error('streamYouTube error:', err?.message || err);
+    const msg =
+      /unavailable|private|removed/i.test(err?.message || '')
+        ? 'Video unavailable'
+        : /Too Many Requests|429/.test(err?.message || '')
+        ? 'Rate limited by YouTube'
+        : 'Failed to resolve stream';
+    res.status(500).json({ error: msg });
+  }
+};
+
