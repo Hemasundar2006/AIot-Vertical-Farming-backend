@@ -255,6 +255,183 @@ exports.predictWaterGet = async (req, res) => {
 };
 
 /* =========================================================
+   HORIZONTAL & VERTICAL CROP PREDICTION
+   ========================================================= */
+
+// Common validation for horizontal/vertical crop prediction
+const validateVerticalHorizontalInput = (body) => {
+  const {
+    N, P, K, temperature, humidity, ph, rainfall, soiltype, season, month,
+  } = body;
+
+  const missingFields = [];
+  if (N === undefined) missingFields.push('N');
+  if (P === undefined) missingFields.push('P');
+  if (K === undefined) missingFields.push('K');
+  if (temperature === undefined) missingFields.push('temperature');
+  if (humidity === undefined) missingFields.push('humidity');
+  if (ph === undefined) missingFields.push('ph');
+  if (rainfall === undefined) missingFields.push('rainfall');
+  if (!soiltype) missingFields.push('soiltype');
+  if (!season) missingFields.push('season');
+  if (!month) missingFields.push('month');
+
+  if (missingFields.length) {
+    return {
+      valid: false,
+      error: {
+        status: 400,
+        message: 'Missing required fields',
+        error: `The following fields are required: ${missingFields.join(', ')}`,
+      },
+    };
+  }
+
+  const numFields = { N, P, K, temperature, humidity, ph, rainfall };
+  for (const [key, value] of Object.entries(numFields)) {
+    if (typeof value !== 'number') {
+      const num = Number(value);
+      if (Number.isNaN(num)) {
+        return {
+          valid: false,
+          error: {
+            status: 400,
+            message: 'Invalid input type',
+            error: `${key} must be a number`,
+          },
+        };
+      }
+      numFields[key] = num;
+    }
+  }
+
+  const allowedSeasons = ['Summer', 'Monsoon', 'Winter'];
+  if (!allowedSeasons.includes(season)) {
+    return {
+      valid: false,
+      error: {
+        status: 400,
+        message: 'Invalid season',
+        error: `Season must be one of: ${allowedSeasons.join(', ')}`,
+      },
+    };
+  }
+
+  const allowedSoilTypes = ['Clay', 'Sandy', 'Loamy', 'Loam', 'Silt'];
+  if (!allowedSoilTypes.includes(soiltype)) {
+    return {
+      valid: false,
+      error: {
+        status: 400,
+        message: 'Invalid soil type',
+        error: `Soil type must be one of: ${allowedSoilTypes.join(', ')}`,
+      },
+    };
+  }
+
+  return {
+    valid: true,
+    data: {
+      ...numFields,
+      soiltype,
+      season,
+      month,
+    },
+  };
+};
+
+// Internal helper to call the sumiyon/VerticalfhorizontalCROP space
+const callVerticalHorizontalSpace = async (endpoint, payload) => {
+  const Client = await getGradioClient();
+  const client = await Client.connect('sumiyon/VerticalfhorizontalCROP');
+  const result = await client.predict(endpoint, payload);
+  const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
+  return { prediction };
+};
+
+// @desc    Predict crop for horizontal farming layout
+// @route   POST /api/crop/predict-horizontal
+// @access  Public
+exports.predictHorizontal = async (req, res) => {
+  try {
+    const validation = validateVerticalHorizontalInput(req.body || {});
+    if (!validation.valid) {
+      return res.status(validation.error.status).json({
+        message: validation.error.message,
+        error: validation.error.error,
+      });
+    }
+
+    const payload = validation.data;
+    const { prediction } = await callVerticalHorizontalSpace('/predict_horizontal', payload);
+
+    res.status(200).json({
+      message: 'Horizontal crop prediction generated successfully',
+      prediction,
+      input: payload,
+      layout: 'horizontal',
+    });
+  } catch (error) {
+    console.error('Horizontal crop prediction error:', error);
+
+    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
+      return res.status(503).json({
+        message: 'Horizontal crop prediction service unavailable',
+        error: 'Unable to connect to prediction service. Please try again later.',
+      });
+    }
+
+    res.status(500).json({
+      message: 'Server error during horizontal crop prediction',
+      error: process.env.NODE_ENV === 'production'
+        ? 'An error occurred while processing your request'
+        : error.message || 'Unknown error occurred',
+    });
+  }
+};
+
+// @desc    Predict crop for vertical farming layout
+// @route   POST /api/crop/predict-vertical
+// @access  Public
+exports.predictVertical = async (req, res) => {
+  try {
+    const validation = validateVerticalHorizontalInput(req.body || {});
+    if (!validation.valid) {
+      return res.status(validation.error.status).json({
+        message: validation.error.message,
+        error: validation.error.error,
+      });
+    }
+
+    const payload = validation.data;
+    const { prediction } = await callVerticalHorizontalSpace('/predict_vertical', payload);
+
+    res.status(200).json({
+      message: 'Vertical crop prediction generated successfully',
+      prediction,
+      input: payload,
+      layout: 'vertical',
+    });
+  } catch (error) {
+    console.error('Vertical crop prediction error:', error);
+
+    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
+      return res.status(503).json({
+        message: 'Vertical crop prediction service unavailable',
+        error: 'Unable to connect to prediction service. Please try again later.',
+      });
+    }
+
+    res.status(500).json({
+      message: 'Server error during vertical crop prediction',
+      error: process.env.NODE_ENV === 'production'
+        ? 'An error occurred while processing your request'
+        : error.message || 'Unknown error occurred',
+    });
+  }
+};
+
+/* =========================================================
    OPTIONS API
    ========================================================= */
 
