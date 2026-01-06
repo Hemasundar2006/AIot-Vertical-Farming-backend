@@ -10,6 +10,7 @@ const dataRoutes = require('./routes/dataRoutes');
 const chatbotRoutes = require('./routes/chatbotRoutes');
 const cropRoutes = require('./routes/cropRoutes');
 const sensorRoutes = require('./routes/sensorRoutes');
+const liveRoutes = require('./routes/liveRoutes');
 const SensorData = require('./models/SensorData');
 
 const app = express();
@@ -24,6 +25,7 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/chatbot', chatbotRoutes); // Alternative route for compatibility
 app.use('/api/crop', cropRoutes);
 app.use('/api/sensor', sensorRoutes);
+app.use('/api/live', liveRoutes);
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {
