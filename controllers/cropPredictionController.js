@@ -123,11 +123,15 @@ exports.predictCrop = async (req, res) => {
 };
 
 // Helper function to process water prediction (shared by POST and GET)
-const processWaterPrediction = async (crop, soil, month, season, year, temperature) => {
-  // Validate required fields
-  if (!crop || !soil || !month || !season || !year || temperature === undefined) {
-    throw { status: 400, message: 'Missing required fields', error: 'crop, soil, month, season, year, and temperature are required' };
+// Year is hardcoded to 2025 - no user input required
+const processWaterPrediction = async (crop, soil, month, season, temperature) => {
+  // Validate required fields (year is not required as it's hardcoded)
+  if (!crop || !soil || !month || !season || temperature === undefined) {
+    throw { status: 400, message: 'Missing required fields', error: 'crop, soil, month, season, and temperature are required' };
   }
+  
+  // Hardcode year to 2025
+  const year = "2025";
 
   // Validate crop
   const validCrops = [
@@ -171,8 +175,8 @@ const processWaterPrediction = async (crop, soil, month, season, year, temperatu
     throw { status: 400, message: 'Invalid temperature', error: `Temperature must be one of: ${validTemperatures.join(', ')}` };
   }
 
-  // Ensure year is a string (Gradio API is strict about types)
-  const yearStr = String(year);
+  // Year is hardcoded to "2025" as string (Gradio API is strict about types)
+  const yearStr = "2025";
 
   // Import Gradio client
   let Client;
@@ -188,12 +192,13 @@ const processWaterPrediction = async (crop, soil, month, season, year, temperatu
   const client = await Client.connect('sumiyon/water_only');
 
   // Make prediction - API expects all parameters as strings
+  // Year is always "2025"
   const predictionParams = {
     crop: String(crop),
     soil: String(soil),
     month: String(month),
     season: String(season),
-    year: String(yearStr),
+    year: "2025", // Hardcoded to 2025
     temperature: String(temperature),
   };
 
@@ -211,19 +216,20 @@ const processWaterPrediction = async (crop, soil, month, season, year, temperatu
       soil,
       month,
       season,
-      year: yearStr,
+      year: "2025", // Always 2025
       temperature: temperature.toString(),
     },
   };
 };
 
-// @desc    Predict water requirements based on crop, soil, month, season, year, and temperature (POST)
+// @desc    Predict water requirements based on crop, soil, month, season, and temperature (POST)
 // @route   POST /api/crop/predict-water
 // @access  Public
+// Note: Year is hardcoded to 2025
 exports.predictWater = async (req, res) => {
   try {
-    const { crop, soil, month, season, year, temperature } = req.body;
-    const result = await processWaterPrediction(crop, soil, month, season, year, temperature);
+    const { crop, soil, month, season, temperature } = req.body;
+    const result = await processWaterPrediction(crop, soil, month, season, temperature);
     
     res.status(200).json({
       message: 'Water prediction generated successfully',
@@ -273,13 +279,14 @@ exports.predictWater = async (req, res) => {
   }
 };
 
-// @desc    Predict water requirements based on crop, soil, month, season, year, and temperature (GET)
+// @desc    Predict water requirements based on crop, soil, month, season, and temperature (GET)
 // @route   GET /api/crop/predict-water
 // @access  Public
+// Note: Year is hardcoded to 2025
 exports.predictWaterGet = async (req, res) => {
   try {
-    const { crop, soil, month, season, year, temperature } = req.query;
-    const result = await processWaterPrediction(crop, soil, month, season, year, temperature);
+    const { crop, soil, month, season, temperature } = req.query;
+    const result = await processWaterPrediction(crop, soil, month, season, temperature);
     
     res.status(200).json({
       message: 'Water prediction generated successfully',
@@ -387,11 +394,7 @@ exports.getOptions = (req, res) => {
       ],
       soilTypes: ['Clay', 'Sandy', 'Loamy'],
       temperatures: [18, 20, 22, 25, 28, 30, 32, 35],
-      yearRange: {
-        min: 2000,
-        max: 2100,
-        default: 2025,
-      },
+      year: "2025", // Fixed to 2025 - not user selectable
     },
   });
 };
