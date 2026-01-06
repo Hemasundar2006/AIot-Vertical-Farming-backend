@@ -2,18 +2,20 @@ const mongoose = require('mongoose');
 
 const liveStreamSchema = new mongoose.Schema(
   {
-    youtubeLink: {
+    // Direct stream URL (e.g. HLS .m3u8 or MP4 URL)
+    streamUrl: {
       type: String,
-      required: [true, 'YouTube live link is required'],
+      required: [true, 'Stream URL is required'],
       trim: true,
       validate: {
-        validator: function(v) {
-          // Validate YouTube URL format
-          const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
-          return youtubeRegex.test(v);
+        validator: function (v) {
+          // Basic HTTP/HTTPS URL validation
+          const urlRegex = /^(https?:\/\/)[^\s]+$/i;
+          return urlRegex.test(v);
         },
-        message: 'Please provide a valid YouTube URL',
+        message: 'Please provide a valid stream URL (e.g. https://example.com/stream.m3u8)',
       },
+    },
     },
     isActive: {
       type: Boolean,

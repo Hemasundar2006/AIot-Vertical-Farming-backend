@@ -1,26 +1,26 @@
 const LiveStream = require('../models/LiveStream');
 
-// @desc    Set YouTube live link
+// @desc    Set live stream URL
 // @route   POST /api/live/set-link
 // @access  Public
 exports.setLiveLink = async (req, res) => {
   try {
-    const { youtubeLink, title, description } = req.body;
+    const { streamUrl, title, description } = req.body;
 
     // Validate required fields
-    if (!youtubeLink) {
+    if (!streamUrl) {
       return res.status(400).json({
-        message: 'YouTube live link is required',
-        error: 'Please provide a valid YouTube live URL',
+        message: 'Stream URL is required',
+        error: 'Please provide a valid stream URL (e.g., HLS .m3u8 link)',
       });
     }
 
-    // Validate YouTube URL format
-    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
-    if (!youtubeRegex.test(youtubeLink)) {
+    // Basic stream URL format validation
+    const urlRegex = /^(https?:\/\/)[^\s]+$/i;
+    if (!urlRegex.test(streamUrl)) {
       return res.status(400).json({
-        message: 'Invalid YouTube URL',
-        error: 'Please provide a valid YouTube URL (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)',
+        message: 'Invalid stream URL',
+        error: 'Please provide a valid stream URL (e.g., https://example.com/stream.m3u8)',
       });
     }
 
@@ -29,21 +29,18 @@ exports.setLiveLink = async (req, res) => {
 
     // Create new live stream entry
     const liveStream = await LiveStream.create({
-      youtubeLink,
+      streamUrl,
       title: title || 'Live Stream',
       description: description || '',
       isActive: true,
     });
 
+    // Respond in the requested format
     res.status(201).json({
-      message: 'YouTube live link set successfully',
       data: {
-        id: liveStream._id,
-        youtubeLink: liveStream.youtubeLink,
+        streamUrl: liveStream.streamUrl,
         title: liveStream.title,
         description: liveStream.description,
-        isActive: liveStream.isActive,
-        createdAt: liveStream.createdAt,
       },
     });
   } catch (error) {
@@ -67,7 +64,7 @@ exports.setLiveLink = async (req, res) => {
   }
 };
 
-// @desc    Get current active YouTube live link
+// @desc    Get current active live stream URL
 // @route   GET /api/live/get-link
 // @access  Public
 exports.getLiveLink = async (req, res) => {
@@ -88,7 +85,7 @@ exports.getLiveLink = async (req, res) => {
       message: 'Live stream link retrieved successfully',
       data: {
         id: liveStream._id,
-        youtubeLink: liveStream.youtubeLink,
+        streamUrl: liveStream.streamUrl,
         title: liveStream.title,
         description: liveStream.description,
         isActive: liveStream.isActive,
