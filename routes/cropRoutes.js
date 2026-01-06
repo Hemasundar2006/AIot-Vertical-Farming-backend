@@ -1,5 +1,5 @@
 const express = require('express');
-const { predictCrop, getOptions } = require('../controllers/cropPredictionController');
+const { predictCrop, predictWater, getOptions } = require('../controllers/cropPredictionController');
 
 const router = express.Router();
 
@@ -13,6 +13,9 @@ router.get('/options', getOptions);
 
 // Predict crop endpoint
 router.post('/predict', asyncHandler(predictCrop));
+
+// Predict water requirements endpoint
+router.post('/predict-water', asyncHandler(predictWater));
 
 module.exports = router;
 

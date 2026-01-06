@@ -122,13 +122,40 @@ exports.predictCrop = async (req, res) => {
   }
 };
 
-// @desc    Get available options for crop prediction
-// @route   GET /api/crop/options
+// @desc    Predict water requirements based on crop, soil, month, season, year, and temperature
+// @route   POST /api/crop/predict-water
 // @access  Public
-exports.getOptions = (req, res) => {
-  res.status(200).json({
-    seasons: ['Kharif', 'Rabi', 'Zaid'],
-    months: [
+exports.predictWater = async (req, res) => {
+  try {
+    const { crop, soil, month, season, year, temperature } = req.body;
+
+    // Validate required fields
+    if (!crop || !soil || !month || !season || !year || temperature === undefined) {
+      return res.status(400).json({
+        message: 'Missing required fields',
+        error: 'crop, soil, month, season, year, and temperature are required',
+      });
+    }
+
+    // Validate crop
+    const validCrops = [
+      'Lettuce',
+      'Microgreens',
+      'Tomato',
+      'Strawberry',
+      'Pepper/Chili',
+      'Eggplant',
+      'Onion'
+    ];
+    if (!validCrops.includes(crop)) {
+      return res.status(400).json({
+        message: 'Invalid crop',
+        error: `Crop must be one of: ${validCrops.join(', ')}`,
+      });
+    }
+
+    // Validate month
+    const validMonths = [
       'January',
       'February',
       'March',
@@ -141,12 +168,171 @@ exports.getOptions = (req, res) => {
       'October',
       'November',
       'December',
-    ],
-    soilTypes: ['Clay', 'Loam', 'Sandy', 'Silt'],
-    yearRange: {
-      min: 2000,
-      max: 2100,
-      default: 2025,
+    ];
+    if (!validMonths.includes(month)) {
+      return res.status(400).json({
+        message: 'Invalid month',
+        error: `Month must be one of: ${validMonths.join(', ')}`,
+      });
+    }
+
+    // Validate season
+    const validSeasons = ['Summer', 'Monsoon', 'Winter'];
+    if (!validSeasons.includes(season)) {
+      return res.status(400).json({
+        message: 'Invalid season',
+        error: `Season must be one of: ${validSeasons.join(', ')}`,
+      });
+    }
+
+    // Validate soil type
+    const validSoilTypes = ['Clay', 'Sandy', 'Loamy'];
+    if (!validSoilTypes.includes(soil)) {
+      return res.status(400).json({
+        message: 'Invalid soil type',
+        error: `Soil type must be one of: ${validSoilTypes.join(', ')}`,
+      });
+    }
+
+    // Validate temperature - only specific values allowed
+    const validTemperatures = [18, 20, 22, 25, 28, 30, 32, 35];
+    const tempNum = typeof temperature === 'string' ? parseFloat(temperature) : temperature;
+    if (isNaN(tempNum) || !validTemperatures.includes(tempNum)) {
+      return res.status(400).json({
+        message: 'Invalid temperature',
+        error: `Temperature must be one of: ${validTemperatures.join(', ')}`,
+      });
+    }
+
+    // Validate year (convert to string as API expects string)
+    const yearStr = typeof year === 'number' ? year.toString() : year;
+
+    // Import Gradio client
+    let Client;
+    try {
+      const gradioClient = require('@gradio/client');
+      // Handle both named export { Client } and default export
+      Client = gradioClient.Client || gradioClient;
+    } catch (error) {
+      console.error('Failed to load @gradio/client:', error);
+      return res.status(500).json({
+        message: 'Water prediction service not available',
+        error: '@gradio/client package is not installed. Please install it: npm install @gradio/client',
+      });
+    }
+
+    // Connect to Gradio API (sumiyon/water_only space)
+    const client = await Client.connect('sumiyon/water_only');
+
+    // Make prediction - API expects all parameters as strings
+    const result = await client.predict('/predict_water', {
+      crop: crop.toString(),
+      soil: soil.toString(),
+      month: month.toString(),
+      season: season.toString(),
+      year: yearStr,
+      temperature: temperature.toString(),
+    });
+
+    // Extract the prediction result
+    // Gradio returns data in result.data array, first element is the prediction
+    const waterPrediction = Array.isArray(result.data) ? result.data[0] : result.data;
+
+    res.status(200).json({
+      message: 'Water prediction generated successfully',
+      prediction: waterPrediction,
+      input: {
+        crop,
+        soil,
+        month,
+        season,
+        year: yearStr,
+        temperature: temperature.toString(),
+      },
+    });
+  } catch (error) {
+    console.error('Water prediction error:', error);
+    console.error('Error stack:', error.stack);
+
+    // Handle specific Gradio API errors
+    if (error.message && error.message.includes('connect')) {
+      return res.status(503).json({
+        message: 'Water prediction service unavailable',
+        error: 'Unable to connect to prediction service. Please try again later.',
+      });
+    }
+
+    res.status(500).json({
+      message: 'Server error during water prediction',
+      error: process.env.NODE_ENV === 'production'
+        ? 'An error occurred while processing your request'
+        : error.message,
+    });
+  }
+};
+
+// @desc    Get available options for crop prediction
+// @route   GET /api/crop/options
+// @access  Public
+exports.getOptions = (req, res) => {
+  res.status(200).json({
+    // Crop prediction options
+    cropPrediction: {
+      seasons: ['Kharif', 'Rabi', 'Zaid'],
+      months: [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ],
+      soilTypes: ['Clay', 'Loam', 'Sandy', 'Silt'],
+      yearRange: {
+        min: 2000,
+        max: 2100,
+        default: 2025,
+      },
+    },
+    // Water prediction options
+    waterPrediction: {
+      crops: [
+        'Lettuce',
+        'Microgreens',
+        'Tomato',
+        'Strawberry',
+        'Pepper/Chili',
+        'Eggplant',
+        'Onion'
+      ],
+      seasons: ['Summer', 'Monsoon', 'Winter'],
+      months: [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ],
+      soilTypes: ['Clay', 'Sandy', 'Loamy'],
+      temperatures: [18, 20, 22, 25, 28, 30, 32, 35],
+      yearRange: {
+        min: 2000,
+        max: 2100,
+        default: 2025,
+      },
     },
   });
 };
