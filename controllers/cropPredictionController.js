@@ -281,10 +281,8 @@ exports.predictWater = async (req, res) => {
     }
 
     // Year is fixed to 2025 (ignore user input)
-    // Gradio dropdowns may require the exact value format
-    // Try different formats: string "2025", number 2025, or index 0
-    const yearFormats = ["2025", 2025, 0];
-    let lastError = null;
+    // Gradio expects year as a string "2025" (confirmed: Default:"2025")
+    const fixedYear = String("2025"); // Explicitly ensure it's a string
 
     // Import Gradio client
     const gradioClient = require('@gradio/client');
@@ -293,39 +291,22 @@ exports.predictWater = async (req, res) => {
     // Connect to Gradio API
     const client = await Client.connect('sumiyon/water_only');
 
-    // Base prediction parameters
-    const baseParams = {
+    // Prepare prediction parameters
+    // All parameters are sent as strings to match Gradio API expectations
+    const predictionParams = {
       crop: String(crop),
       soil: String(soil),
       month: String(month),
       season: String(season),
+      year: fixedYear, // String "2025" as required by Gradio dropdown
       temperature: String(temperature),
     };
 
-    // Try each year format until one works
-    let result;
-    for (const yearValue of yearFormats) {
-      try {
-        const predictionParams = {
-          ...baseParams,
-          year: yearValue,
-        };
+    console.log('Sending prediction params:', JSON.stringify(predictionParams, null, 2));
+    console.log('Year type:', typeof predictionParams.year, 'Value:', JSON.stringify(predictionParams.year));
 
-        console.log(`Trying year format: ${JSON.stringify(yearValue)} (type: ${typeof yearValue})`);
-        result = await client.predict('/predict_water', predictionParams);
-        console.log('Success with year format:', yearValue);
-        break; // Success, exit loop
-      } catch (err) {
-        lastError = err;
-        console.log(`Failed with year format ${yearValue}:`, err.message);
-        // Continue to next format
-      }
-    }
-
-    // If all formats failed, throw the last error
-    if (!result) {
-      throw lastError || new Error('All year formats failed');
-    }
+    // Make prediction
+    const result = await client.predict('/predict_water', predictionParams);
 
     // Extract prediction result
     const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
