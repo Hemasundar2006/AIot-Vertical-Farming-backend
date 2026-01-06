@@ -119,15 +119,82 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
   const Client = await getGradioClient();
   const client = await Client.connect("sumiyon/water_only");
 
-  // ✅ ONLY VALID PAYLOAD
-  const result = await client.predict("/predict_water", {
-    crop,
-    soil,
-    month,
-    season,
-    year,          // 🔥 STRING "2025"
-    temperature: temp,
-  });
+  // Inspect API to understand parameter structure
+  try {
+    const apiInfo = await client.view_api();
+    console.log("Gradio API Info:", JSON.stringify(apiInfo, null, 2));
+  } catch (apiErr) {
+    console.log("Could not fetch API info:", apiErr.message);
+  }
+
+  // Try different approaches for year parameter due to Gradio dropdown issue
+  // Strategy: Try without year first, then with different formats
+  let result;
+  let lastError = null;
+
+  // Try 1: Without year parameter (if it's optional with single choice)
+  try {
+    result = await client.predict("/predict_water", {
+      crop,
+      soil,
+      month,
+      season,
+      temperature: temp,
+      // year omitted
+    });
+    console.log("Success: Year parameter omitted");
+  } catch (err1) {
+    lastError = err1;
+    console.log("Failed without year, trying with year as string...");
+
+    // Try 2: With year as string "2025"
+    try {
+      result = await client.predict("/predict_water", {
+        crop,
+        soil,
+        month,
+        season,
+        year: "2025",
+        temperature: temp,
+      });
+      console.log("Success: Year as string '2025'");
+    } catch (err2) {
+      lastError = err2;
+      console.log("Failed with string, trying with year as number...");
+
+      // Try 3: With year as number 2025
+      try {
+        result = await client.predict("/predict_water", {
+          crop,
+          soil,
+          month,
+          season,
+          year: 2025,
+          temperature: temp,
+        });
+        console.log("Success: Year as number 2025");
+      } catch (err3) {
+        lastError = err3;
+        console.log("Failed with number, trying with year as index 0...");
+
+        // Try 4: With year as index 0
+        try {
+          result = await client.predict("/predict_water", {
+            crop,
+            soil,
+            month,
+            season,
+            year: 0,
+            temperature: temp,
+          });
+          console.log("Success: Year as index 0");
+        } catch (err4) {
+          lastError = err4;
+          throw lastError || new Error("All year format attempts failed");
+        }
+      }
+    }
+  }
 
   const prediction = Array.isArray(result.data)
     ? result.data[0]
