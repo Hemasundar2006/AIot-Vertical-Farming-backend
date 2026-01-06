@@ -25,7 +25,7 @@ const mapErrorMessage = (err) => {
   return 'Failed to resolve stream';
 };
 
-// @desc    Proxy YouTube stream through this server
+// @desc    Resolve a YouTube URL into a direct stream URL (HLS/MP4)
 // @route   GET /api/stream/get-stream?url=<youtube_url>
 // @access  Public
 exports.getStream = async (req, res) => {
@@ -39,7 +39,7 @@ exports.getStream = async (req, res) => {
     const info = await ytdl.getInfo(youtubeUrl);
 
     // Prefer HLS, fall back to best combined audio+video MP4
-    const preferredFormat =
+    const format =
       info.formats.find(
         (f) => f.isHLS || f.mimeType?.includes('application/vnd.apple.mpegurl')
       ) ||
@@ -48,32 +48,12 @@ exports.getStream = async (req, res) => {
         filter: 'audioandvideo',
       });
 
-    if (!preferredFormat?.url) {
+    if (!format?.url) {
       return res.status(404).json({ error: 'No playable stream found' });
     }
 
-    res.setHeader('Content-Type', preferredFormat.mimeType || 'video/mp4');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    const stream = ytdl.downloadFromInfo(info, {
-      format: preferredFormat,
-      filter: 'audioandvideo',
-      highWaterMark: 1 << 25, // 32MB to smooth out buffering
-    });
-
-    stream.on('error', (err) => {
-      console.error('ytdl stream error:', err);
-      if (!res.headersSent) {
-        res.status(502).json({ error: 'Upstream stream failed' });
-      } else {
-        res.destroy(err);
-      }
-    });
-
-    // Clean up if client disconnects
-    req.on('close', () => stream.destroy());
-
-    stream.pipe(res);
+    // Return just the direct stream URL, to be used by your /live/set-link
+    res.json({ streamUrl: format.url });
   } catch (err) {
     console.error('get-stream error:', err);
     res.status(500).json({ error: mapErrorMessage(err) });
