@@ -16,7 +16,6 @@ const liveStreamSchema = new mongoose.Schema(
         message: 'Please provide a valid stream URL (e.g. https://example.com/stream.m3u8)',
       },
     },
-    },
     isActive: {
       type: Boolean,
       default: true,
