@@ -1,717 +1,216 @@
-// @desc    Predict crop based on year, season, month, and soil type
+/**
+ * Crop & Water Prediction Controller
+ * Gradio-compatible (STRICT dropdown handling)
+ */
+
+const getGradioClient = async () => {
+  const gradioClient = require("@gradio/client");
+  return gradioClient.Client || gradioClient;
+};
+
+/* =========================================================
+   CROP PREDICTION
+   ========================================================= */
+
+// @desc    Predict crop based on year, season, month, soil type
 // @route   POST /api/crop/predict
 // @access  Public
-
 exports.predictCrop = async (req, res) => {
   try {
-    const { year, season, month, soil_type } = req.body;
+    const { season, month, soil_type } = req.body;
 
-    // Validate required fields
-    if (!year || !season || !month || !soil_type) {
+    // Year is FIXED
+    const year = 2025;
+
+    if (!season || !month || !soil_type) {
       return res.status(400).json({
-        message: 'Missing required fields',
-        error: 'year, season, month, and soil_type are required',
+        error: "season, month, and soil_type are required",
       });
     }
 
-    // Validate year
-    if (typeof year !== 'number' || year < 2000 || year > 2100) {
-      return res.status(400).json({
-        message: 'Invalid year',
-        error: 'Year must be a number between 2000 and 2100',
-      });
-    }
-
-    // Validate season
-    const validSeasons = ['Kharif', 'Rabi', 'Zaid'];
-    if (!validSeasons.includes(season)) {
-      return res.status(400).json({
-        message: 'Invalid season',
-        error: `Season must be one of: ${validSeasons.join(', ')}`,
-      });
-    }
-
-    // Validate month
+    const validSeasons = ["Kharif", "Rabi", "Zaid"];
     const validMonths = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
     ];
+    const validSoilTypes = ["Clay", "Loam", "Sandy", "Silt"];
+
+    if (!validSeasons.includes(season)) {
+      return res.status(400).json({ error: "Invalid season" });
+    }
     if (!validMonths.includes(month)) {
-      return res.status(400).json({
-        message: 'Invalid month',
-        error: `Month must be one of: ${validMonths.join(', ')}`,
-      });
+      return res.status(400).json({ error: "Invalid month" });
     }
-
-    // Validate soil type
-    const validSoilTypes = ['Clay', 'Loam', 'Sandy', 'Silt'];
     if (!validSoilTypes.includes(soil_type)) {
-      return res.status(400).json({
-        message: 'Invalid soil type',
-        error: `Soil type must be one of: ${validSoilTypes.join(', ')}`,
-      });
+      return res.status(400).json({ error: "Invalid soil type" });
     }
 
-    // Import Gradio client
-    let Client;
-    try {
-      const gradioClient = require('@gradio/client');
-      // Handle both named export { Client } and default export
-      Client = gradioClient.Client || gradioClient;
-    } catch (error) {
-      console.error('Failed to load @gradio/client:', error);
-      return res.status(500).json({
-        message: 'Crop prediction service not available',
-        error: '@gradio/client package is not installed. Please install it: npm install @gradio/client',
-      });
-    }
+    const Client = await getGradioClient();
+    const client = await Client.connect("sumiyon/Agrinex");
 
-    // Connect to Gradio API (sumiyon/Agrinex space)
-    const client = await Client.connect('sumiyon/Agrinex');
-
-    // Make prediction
-    const result = await client.predict('/predict_crop', {
-      year: year,
-      season: season,
-      month: month,
-      soil_type: soil_type,
+    const result = await client.predict("/predict_crop", {
+      year,
+      season,
+      month,
+      soil_type,
     });
 
-    // Extract the predicted crop from result
-    // Gradio returns data in result.data array, first element is the prediction
-    const predictedCrop = Array.isArray(result.data) ? result.data[0] : result.data;
+    const prediction = Array.isArray(result.data)
+      ? result.data[0]
+      : result.data;
 
     res.status(200).json({
-      message: 'Crop prediction generated successfully',
-      prediction: predictedCrop,
-      input: {
-        year,
-        season,
-        month,
-        soil_type,
-      },
+      message: "Crop prediction successful",
+      prediction,
+      input: { year, season, month, soil_type },
     });
-  } catch (error) {
-    console.error('Crop prediction error:', error);
-    console.error('Error stack:', error.stack);
-
-    // Handle specific Gradio API errors
-    if (error.message && error.message.includes('connect')) {
-      return res.status(503).json({
-        message: 'Crop prediction service unavailable',
-        error: 'Unable to connect to prediction service. Please try again later.',
-      });
-    }
-
+  } catch (err) {
+    console.error("Crop prediction error:", err);
     res.status(500).json({
-      message: 'Server error during crop prediction',
-      error: process.env.NODE_ENV === 'production'
-        ? 'An error occurred while processing your request'
-        : error.message,
+      error: err.message || "Crop prediction failed",
     });
   }
 };
 
-// Helper function to process water prediction (shared by POST and GET)
-// Year is hardcoded to 2025 - no user input required
+/* =========================================================
+   WATER PREDICTION (FIXED YEAR ISSUE)
+   ========================================================= */
+
+// Internal helper
 const processWaterPrediction = async (crop, soil, month, season, temperature) => {
-  // Validate required fields (year is not required as it's hardcoded)
   if (!crop || !soil || !month || !season || temperature === undefined) {
-    throw { status: 400, message: 'Missing required fields', error: 'crop, soil, month, season, and temperature are required' };
+    throw { status: 400, error: "Missing required fields" };
   }
-  
-  // Hardcode year to 2025
+
+  // 🔒 YEAR MUST MATCH GRADIO DROPDOWN EXACTLY
   const year = "2025";
 
-  // Validate crop
   const validCrops = [
-    'Lettuce',
-    'Microgreens',
-    'Tomato',
-    'Strawberry',
-    'Pepper/Chili',
-    'Eggplant',
-    'Onion'
+    "Lettuce",
+    "Microgreens",
+    "Tomato",
+    "Strawberry",
+    "Pepper/Chili",
+    "Eggplant",
+    "Onion",
   ];
-  if (!validCrops.includes(crop)) {
-    throw { status: 400, message: 'Invalid crop', error: `Crop must be one of: ${validCrops.join(', ')}` };
-  }
 
-  // Validate month
+  const validSoils = ["Clay", "Sandy", "Loamy"];
+  const validSeasons = ["Summer", "Monsoon", "Winter"];
   const validMonths = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
   ];
-  if (!validMonths.includes(month)) {
-    throw { status: 400, message: 'Invalid month', error: `Month must be one of: ${validMonths.join(', ')}` };
+  const validTemps = [18, 20, 22, 25, 28, 30, 32, 35];
+
+  if (!validCrops.includes(crop)) throw { status: 400, error: "Invalid crop" };
+  if (!validSoils.includes(soil)) throw { status: 400, error: "Invalid soil" };
+  if (!validSeasons.includes(season)) throw { status: 400, error: "Invalid season" };
+  if (!validMonths.includes(month)) throw { status: 400, error: "Invalid month" };
+
+  const temp = Number(temperature);
+  if (!validTemps.includes(temp)) {
+    throw {
+      status: 400,
+      error: `Temperature must be one of ${validTemps.join(", ")}`,
+    };
   }
 
-  // Validate season
-  const validSeasons = ['Summer', 'Monsoon', 'Winter'];
-  if (!validSeasons.includes(season)) {
-    throw { status: 400, message: 'Invalid season', error: `Season must be one of: ${validSeasons.join(', ')}` };
-  }
+  const Client = await getGradioClient();
+  const client = await Client.connect("sumiyon/water_only");
 
-  // Validate soil type
-  const validSoilTypes = ['Clay', 'Sandy', 'Loamy'];
-  if (!validSoilTypes.includes(soil)) {
-    throw { status: 400, message: 'Invalid soil type', error: `Soil type must be one of: ${validSoilTypes.join(', ')}` };
-  }
+  // ✅ ONLY VALID PAYLOAD
+  const result = await client.predict("/predict_water", {
+    crop,
+    soil,
+    month,
+    season,
+    year,          // 🔥 STRING "2025"
+    temperature: temp,
+  });
 
-  // Validate temperature - only specific values allowed
-  const validTemperatures = [18, 20, 22, 25, 28, 30, 32, 35];
-  const tempNum = typeof temperature === 'string' ? parseFloat(temperature) : temperature;
-  if (isNaN(tempNum) || !validTemperatures.includes(tempNum)) {
-    throw { status: 400, message: 'Invalid temperature', error: `Temperature must be one of: ${validTemperatures.join(', ')}` };
-  }
-
-  // Year is hardcoded to "2025" as string (Gradio API is strict about types)
-  const yearStr = "2025";
-
-  // Import Gradio client
-  let Client;
-  try {
-    const gradioClient = require('@gradio/client');
-    Client = gradioClient.Client || gradioClient;
-  } catch (error) {
-    console.error('Failed to load @gradio/client:', error);
-    throw { status: 500, message: 'Water prediction service not available', error: '@gradio/client package is not installed. Please install it: npm install @gradio/client' };
-  }
-
-  // Connect to Gradio API (sumiyon/water_only space)
-  const client = await Client.connect('sumiyon/water_only');
-
-  // Try to inspect API info to understand expected parameter types
-  try {
-    const apiInfo = await client.view_api();
-    console.log('Gradio API info:', JSON.stringify(apiInfo, null, 2));
-  } catch (apiInfoError) {
-    console.log('Could not fetch API info:', apiInfoError.message);
-  }
-
-  // Make prediction - Try different year formats due to Gradio type mismatch issue
-  // The error suggests Gradio dropdown might expect number or index instead of string
-  const baseParams = {
-    crop: String(crop),
-    soil: String(soil),
-    month: String(month),
-    season: String(season),
-    temperature: String(temperature),
-  };
-
-  // Try year as number first (2025), then as string ("2025"), then as index (0)
-  const yearFormats = [
-    { year: 2025, format: 'number' },
-    { year: "2025", format: 'string' },
-    { year: 0, format: 'index' }
-  ];
-
-  let result;
-  let lastError = null;
-
-  for (const yearFormat of yearFormats) {
-    try {
-      const predictionParams = {
-        ...baseParams,
-        year: yearFormat.year,
-      };
-
-      console.log(`Trying year as ${yearFormat.format}:`, { value: predictionParams.year, type: typeof predictionParams.year });
-      
-      result = await client.predict('/predict_water', predictionParams);
-      console.log(`Success with year format: ${yearFormat.format}`);
-      break; // Success, exit loop
-    } catch (predictError) {
-      lastError = predictError;
-      console.log(`Failed with year as ${yearFormat.format}:`, predictError.message);
-      // Continue to next format
-    }
-  }
-
-  // If all formats failed, throw the last error
-  if (!result) {
-    console.error('All year formats failed. Last error:', lastError);
-    throw lastError || new Error('Failed to predict with any year format');
-  }
-
-  // Extract the prediction result
-  const waterPrediction = Array.isArray(result.data) ? result.data[0] : result.data;
+  const prediction = Array.isArray(result.data)
+    ? result.data[0]
+    : result.data;
 
   return {
-    prediction: waterPrediction,
-    input: {
+    prediction,
+    input: { crop, soil, month, season, year, temperature: temp },
+  };
+};
+
+// @desc    Predict water (POST)
+// @route   POST /api/crop/predict-water
+exports.predictWater = async (req, res) => {
+  try {
+    const { crop, soil, month, season, temperature } = req.body;
+
+    const result = await processWaterPrediction(
       crop,
       soil,
       month,
       season,
-      year: "2025", // Always 2025
-      temperature: temperature.toString(),
-    },
-  };
-};
+      temperature
+    );
 
-// @desc    Predict water requirements based on crop, soil, month, season, year, and temperature (POST)
-// @route   POST /api/crop/predict-water
-// @access  Public
-// Note: Year is fixed to 2025
-exports.predictWater = async (req, res) => {
-  try {
-    const { crop, soil, month, season, year, temperature } = req.body;
-    
-    console.log('Received water prediction request:', { crop, soil, month, season, year, temperature });
-    
-    // Use the existing helper function which handles the Gradio API correctly
-    const result = await processWaterPrediction(crop, soil, month, season, temperature);
-    
-    // Return simplified response format
     res.status(200).json({
-      prediction: `💧 Water Required: ${result.prediction} Liters / Month`
+      prediction: `💧 Water Required: ${result.prediction} Liters / Month`,
     });
-  } catch (error) {
-    console.error('Water prediction error:', error);
-    console.error('Error details:', {
-      status: error.status,
-      message: error.message,
-      error: error.error,
-      type: error.type,
-      stage: error.stage,
-      code: error.code,
-      success: error.success,
-      stack: error.stack
-    });
-
-    // Handle validation errors from processWaterPrediction
-    if (error.status) {
-      return res.status(error.status).json({
-        error: error.error || error.message
-      });
-    }
-
-    // Handle Gradio API specific errors
-    if (error.type === 'status' || error.success === false) {
-      // Extract error message from various possible properties
-      const errorMessage = error.message || error.error || error.title || 'Water prediction failed';
-      console.error('Gradio API error:', {
-        message: error.message,
-        error: error.error,
-        title: error.title,
-        stage: error.stage,
-        fullError: error
-      });
-      return res.status(400).json({
-        error: errorMessage
-      });
-    }
-
-    // Handle connection errors
-    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
-      return res.status(503).json({
-        error: 'Unable to connect to prediction service. Please try again later.'
-      });
-    }
-
-    // Generic server error
-    res.status(500).json({
-      error: error.message || 'Failed to predict water requirements'
+  } catch (err) {
+    console.error("Water prediction error:", err);
+    res.status(err.status || 500).json({
+      error: err.error || err.message || "Water prediction failed",
     });
   }
 };
 
-// @desc    Predict water requirements based on crop, soil, month, season, and temperature (GET)
+// @desc    Predict water (GET)
 // @route   GET /api/crop/predict-water
-// @access  Public
-// Note: Year is hardcoded to 2025
 exports.predictWaterGet = async (req, res) => {
   try {
     const { crop, soil, month, season, temperature } = req.query;
-    const result = await processWaterPrediction(crop, soil, month, season, temperature);
-    
-    res.status(200).json({
-      message: 'Water prediction generated successfully',
-      ...result,
-    });
-  } catch (error) {
-    // Handle validation errors
-    if (error.status) {
-      return res.status(error.status).json({
-        message: error.message,
-        error: error.error,
-      });
-    }
 
-    console.error('Water prediction error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error type:', error.type);
-    console.error('Error message:', error.message);
-
-    // Handle Gradio API specific errors
-    if (error.type === 'status' || error.success === false) {
-      const errorMsg = error.message || 'Prediction service returned an error';
-      return res.status(400).json({
-        message: 'Water prediction failed',
-        error: errorMsg,
-        details: process.env.NODE_ENV !== 'production' ? {
-          endpoint: error.endpoint,
-          stage: error.stage,
-        } : undefined,
-      });
-    }
-
-    // Handle connection errors
-    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
-      return res.status(503).json({
-        message: 'Water prediction service unavailable',
-        error: 'Unable to connect to prediction service. Please try again later.',
-      });
-    }
-
-    res.status(500).json({
-      message: 'Server error during water prediction',
-      error: process.env.NODE_ENV === 'production'
-        ? 'An error occurred while processing your request'
-        : error.message || 'Unknown error occurred',
-    });
-  }
-};
-
-// ---------------- Vertical vs Horizontal crop prediction (sumiyon/VerticalfhorizontalCROP) ----------------
-
-// Helper to load Gradio Client in both CJS/ESM builds
-const getVerticalHorizontalClient = () => {
-  const gradioClient = require('@gradio/client');
-  const Client = gradioClient.Client || gradioClient;
-  return Client;
-};
-
-// Common validation for horizontal/vertical crop prediction
-const validateVerticalHorizontalInput = (body) => {
-  const {
-    N,
-    P,
-    K,
-    temperature,
-    humidity,
-    ph,
-    rainfall,
-    soiltype,
-    season,
-    month,
-  } = body;
-
-  const missingFields = [];
-  if (N === undefined) missingFields.push('N');
-  if (P === undefined) missingFields.push('P');
-  if (K === undefined) missingFields.push('K');
-  if (temperature === undefined) missingFields.push('temperature');
-  if (humidity === undefined) missingFields.push('humidity');
-  if (ph === undefined) missingFields.push('ph');
-  if (rainfall === undefined) missingFields.push('rainfall');
-  if (!soiltype) missingFields.push('soiltype');
-  if (!season) missingFields.push('season');
-  if (!month) missingFields.push('month');
-
-  if (missingFields.length) {
-    return {
-      valid: false,
-      error: {
-        status: 400,
-        message: 'Missing required fields',
-        error: `The following fields are required: ${missingFields.join(', ')}`,
-      },
-    };
-  }
-
-  const numFields = { N, P, K, temperature, humidity, ph, rainfall };
-  for (const [key, value] of Object.entries(numFields)) {
-    if (typeof value !== 'number') {
-      const num = Number(value);
-      if (Number.isNaN(num)) {
-        return {
-          valid: false,
-          error: {
-            status: 400,
-            message: 'Invalid input type',
-            error: `${key} must be a number`,
-          },
-        };
-      }
-      numFields[key] = num;
-    }
-  }
-
-  const allowedSeasons = ['Summer', 'Monsoon', 'Winter'];
-  if (!allowedSeasons.includes(season)) {
-    return {
-      valid: false,
-      error: {
-        status: 400,
-        message: 'Invalid season',
-        error: `Season must be one of: ${allowedSeasons.join(', ')}`,
-      },
-    };
-  }
-
-  const allowedSoilTypes = ['Clay', 'Sandy', 'Loamy', 'Loam', 'Silt'];
-  if (!allowedSoilTypes.includes(soiltype)) {
-    return {
-      valid: false,
-      error: {
-        status: 400,
-        message: 'Invalid soil type',
-        error: `Soil type must be one of: ${allowedSoilTypes.join(', ')}`,
-      },
-    };
-  }
-
-  // Month is passed as a string label like "December-February" per space docs, so just ensure non-empty
-
-  return {
-    valid: true,
-    data: {
-      ...numFields,
-      soiltype,
-      season,
+    const result = await processWaterPrediction(
+      crop,
+      soil,
       month,
-    },
-  };
-};
+      season,
+      temperature
+    );
 
-// Internal helper to call the sumiyon/VerticalfhorizontalCROP space
-const callVerticalHorizontalSpace = async (endpoint, payload) => {
-  const Client = getVerticalHorizontalClient();
-  const client = await Client.connect('sumiyon/VerticalfhorizontalCROP');
-  const result = await client.predict(endpoint, payload);
-  const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
-  return { prediction };
-};
-
-// @desc    Predict crop for horizontal farming layout
-// @route   POST /api/crop/predict-horizontal
-// @access  Public
-exports.predictHorizontal = async (req, res) => {
-  try {
-    const validation = validateVerticalHorizontalInput(req.body || {});
-    if (!validation.valid) {
-      return res.status(validation.error.status).json({
-        message: validation.error.message,
-        error: validation.error.error,
-      });
-    }
-
-    const payload = validation.data;
-    const { prediction } = await callVerticalHorizontalSpace('/predict_horizontal', payload);
-
-    res.status(200).json({
-      message: 'Horizontal crop prediction generated successfully',
-      prediction,
-      input: payload,
-      layout: 'horizontal',
-    });
-  } catch (error) {
-    console.error('Horizontal crop prediction error:', error);
-
-    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
-      return res.status(503).json({
-        message: 'Horizontal crop prediction service unavailable',
-        error: 'Unable to connect to prediction service. Please try again later.',
-      });
-    }
-
-    res.status(500).json({
-      message: 'Server error during horizontal crop prediction',
-      error:
-        process.env.NODE_ENV === 'production'
-          ? 'An error occurred while processing your request'
-          : error.message || 'Unknown error occurred',
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("Water prediction GET error:", err);
+    res.status(err.status || 500).json({
+      error: err.error || err.message,
     });
   }
 };
 
-// @desc    Predict crop for vertical farming layout
-// @route   POST /api/crop/predict-vertical
-// @access  Public
-exports.predictVertical = async (req, res) => {
-  try {
-    const validation = validateVerticalHorizontalInput(req.body || {});
-    if (!validation.valid) {
-      return res.status(validation.error.status).json({
-        message: validation.error.message,
-        error: validation.error.error,
-      });
-    }
+/* =========================================================
+   OPTIONS API
+   ========================================================= */
 
-    const payload = validation.data;
-    const { prediction } = await callVerticalHorizontalSpace('/predict_vertical', payload);
-
-    res.status(200).json({
-      message: 'Vertical crop prediction generated successfully',
-      prediction,
-      input: payload,
-      layout: 'vertical',
-    });
-  } catch (error) {
-    console.error('Vertical crop prediction error:', error);
-
-    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
-      return res.status(503).json({
-        message: 'Vertical crop prediction service unavailable',
-        error: 'Unable to connect to prediction service. Please try again later.',
-      });
-    }
-
-    res.status(500).json({
-      message: 'Server error during vertical crop prediction',
-      error:
-        process.env.NODE_ENV === 'production'
-          ? 'An error occurred while processing your request'
-          : error.message || 'Unknown error occurred',
-    });
-  }
-};
-
-// @desc    Get available options for crop prediction
-// @route   GET /api/crop/options
-// @access  Public
 exports.getOptions = (req, res) => {
   res.status(200).json({
-    // Crop prediction options
-    cropPrediction: {
-      seasons: ['Kharif', 'Rabi', 'Zaid'],
-      months: [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
-      ],
-      soilTypes: ['Clay', 'Loam', 'Sandy', 'Silt'],
-      yearRange: {
-        min: 2000,
-        max: 2100,
-        default: 2025,
-      },
-    },
-    // Water prediction options
     waterPrediction: {
       crops: [
-        'Lettuce',
-        'Microgreens',
-        'Tomato',
-        'Strawberry',
-        'Pepper/Chili',
-        'Eggplant',
-        'Onion'
+        "Lettuce",
+        "Microgreens",
+        "Tomato",
+        "Strawberry",
+        "Pepper/Chili",
+        "Eggplant",
+        "Onion",
       ],
-      seasons: ['Summer', 'Monsoon', 'Winter'],
+      seasons: ["Summer", "Monsoon", "Winter"],
       months: [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
       ],
-      soilTypes: ['Clay', 'Sandy', 'Loamy'],
+      soilTypes: ["Clay", "Sandy", "Loamy"],
       temperatures: [18, 20, 22, 25, 28, 30, 32, 35],
-      // Year options for dropdown (currently fixed to 2025)
-      years: ['2025'],
-      year: "2025", // Fixed to 2025 in the prediction service
+      years: ["2025"], // 🔒 FIXED
     },
   });
 };
-
-// @desc    Stream YouTube video through server to avoid client IP/token issues
-// @route   GET /api/stream/youtube?url=<youtube_url>
-// @access  Public (apply auth/rate-limit in router as needed)
-exports.streamYouTube = async (req, res) => {
-  const youtubeUrl = req.query.url;
-
-  const isValidYouTubeUrl = (url) => {
-    if (!url) return false;
-    try {
-      const u = new URL(url);
-      if (!/^(www\.)?youtube\.com$|^youtu\.be$/i.test(u.hostname)) return false;
-      return u.searchParams.has('v') || u.pathname.startsWith('/shorts/');
-    } catch (err) {
-      return false;
-    }
-  };
-
-  if (!isValidYouTubeUrl(youtubeUrl)) {
-    return res.status(400).json({ error: 'Invalid YouTube URL' });
-  }
-
-  // Lazy-load ytdl-core to avoid dependency errors during startup
-  let ytdl;
-  try {
-    ytdl = require('ytdl-core');
-  } catch (err) {
-    console.error('Failed to load ytdl-core:', err);
-    return res.status(500).json({ error: 'Streaming dependency missing' });
-  }
-
-  try {
-    const info = await ytdl.getInfo(youtubeUrl);
-    const format =
-      info.formats.find((f) => f.isHLS || f.mimeType?.includes('application/vnd.apple.mpegurl')) ||
-      ytdl.chooseFormat(info.formats, { quality: 'highestvideo' });
-
-    if (!format?.url) {
-      return res.status(404).json({ error: 'No playable stream found' });
-    }
-
-    res.setHeader('Content-Type', format.mimeType || 'video/mp4');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    const stream = ytdl.downloadFromInfo(info, {
-      format,
-      filter: 'audioandvideo',
-      highWaterMark: 1 << 25, // 32MB buffer to reduce stutter
-    });
-
-    stream.on('error', (err) => {
-      console.error('ytdl stream error:', err);
-      if (!res.headersSent) {
-        res.status(502).json({ error: 'Upstream stream failed' });
-      } else {
-        res.destroy(err);
-      }
-    });
-
-    req.on('close', () => stream.destroy());
-    stream.pipe(res);
-  } catch (err) {
-    console.error('streamYouTube error:', err?.message || err);
-    const msg =
-      /unavailable|private|removed/i.test(err?.message || '')
-        ? 'Video unavailable'
-        : /Too Many Requests|429/.test(err?.message || '')
-        ? 'Rate limited by YouTube'
-        : 'Failed to resolve stream';
-    res.status(500).json({ error: msg });
-  }
-};
-
