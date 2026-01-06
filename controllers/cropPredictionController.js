@@ -203,10 +203,25 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
   };
 
   console.log('Sending prediction params:', predictionParams);
+  console.log('Year parameter:', { value: predictionParams.year, type: typeof predictionParams.year });
 
   // IMPORTANT: The endpoint name must match the Gradio function name.
   // The correct endpoint for the sumiyon/water_only space is `/predict_water`.
-  const result = await client.predict('/predict_water', predictionParams);
+  let result;
+  try {
+    result = await client.predict('/predict_water', predictionParams);
+  } catch (predictError) {
+    console.error('Gradio predict error:', predictError);
+    console.error('Error details:', {
+      message: predictError.message,
+      type: predictError.type,
+      stage: predictError.stage,
+      title: predictError.title,
+      error: predictError.error
+    });
+    // Re-throw with more context
+    throw predictError;
+  }
 
   // Extract the prediction result
   const waterPrediction = Array.isArray(result.data) ? result.data[0] : result.data;
@@ -232,6 +247,8 @@ exports.predictWater = async (req, res) => {
   try {
     const { crop, soil, month, season, year, temperature } = req.body;
     
+    console.log('Received water prediction request:', { crop, soil, month, season, year, temperature });
+    
     // Use the existing helper function which handles the Gradio API correctly
     const result = await processWaterPrediction(crop, soil, month, season, temperature);
     
@@ -240,26 +257,38 @@ exports.predictWater = async (req, res) => {
       prediction: `💧 Water Required: ${result.prediction} Liters / Month`
     });
   } catch (error) {
-    // Handle validation errors
+    console.error('Water prediction error:', error);
+    console.error('Error details:', {
+      status: error.status,
+      message: error.message,
+      error: error.error,
+      type: error.type,
+      stage: error.stage,
+      code: error.code,
+      success: error.success,
+      stack: error.stack
+    });
+
+    // Handle validation errors from processWaterPrediction
     if (error.status) {
       return res.status(error.status).json({
         error: error.error || error.message
       });
     }
 
-    console.error('Water prediction error:', error);
-    console.error('Error details:', {
-      message: error.message,
-      type: error.type,
-      stage: error.stage,
-      code: error.code,
-      success: error.success
-    });
-
     // Handle Gradio API specific errors
     if (error.type === 'status' || error.success === false) {
+      // Extract error message from various possible properties
+      const errorMessage = error.message || error.error || error.title || 'Water prediction failed';
+      console.error('Gradio API error:', {
+        message: error.message,
+        error: error.error,
+        title: error.title,
+        stage: error.stage,
+        fullError: error
+      });
       return res.status(400).json({
-        error: error.message || 'Water prediction failed'
+        error: errorMessage
       });
     }
 
@@ -270,8 +299,9 @@ exports.predictWater = async (req, res) => {
       });
     }
 
+    // Generic server error
     res.status(500).json({
-      error: 'Failed to predict water requirements'
+      error: error.message || 'Failed to predict water requirements'
     });
   }
 };
