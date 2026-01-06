@@ -232,90 +232,21 @@ exports.predictWater = async (req, res) => {
   try {
     const { crop, soil, month, season, year, temperature } = req.body;
     
-    // Validate required fields
-    if (!crop || !soil || !month || !season || temperature === undefined) {
-      return res.status(400).json({
-        error: 'Missing required fields: crop, soil, month, season, and temperature are required'
-      });
-    }
-
-    // Validate crop
-    const validCrops = ['Lettuce', 'Microgreens', 'Tomato', 'Strawberry', 'Pepper/Chili', 'Eggplant', 'Onion'];
-    if (!validCrops.includes(crop)) {
-      return res.status(400).json({
-        error: `Invalid crop. Must be one of: ${validCrops.join(', ')}`
-      });
-    }
-
-    // Validate soil
-    const validSoils = ['Clay', 'Sandy', 'Loamy'];
-    if (!validSoils.includes(soil)) {
-      return res.status(400).json({
-        error: `Invalid soil. Must be one of: ${validSoils.join(', ')}`
-      });
-    }
-
-    // Validate month
-    const validMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    if (!validMonths.includes(month)) {
-      return res.status(400).json({
-        error: `Invalid month. Must be one of: ${validMonths.join(', ')}`
-      });
-    }
-
-    // Validate season
-    const validSeasons = ['Summer', 'Monsoon', 'Winter'];
-    if (!validSeasons.includes(season)) {
-      return res.status(400).json({
-        error: `Invalid season. Must be one of: ${validSeasons.join(', ')}`
-      });
-    }
-
-    // Validate temperature
-    const validTemperatures = [18, 20, 22, 25, 28, 30, 32, 35];
-    const tempNum = typeof temperature === 'string' ? parseFloat(temperature) : temperature;
-    if (isNaN(tempNum) || !validTemperatures.includes(tempNum)) {
-      return res.status(400).json({
-        error: `Invalid temperature. Must be one of: ${validTemperatures.join(', ')}`
-      });
-    }
-
-    // Year is fixed to 2025 (ignore user input)
-    // Gradio expects year as a string "2025" (confirmed: Default:"2025")
-    const fixedYear = String("2025"); // Explicitly ensure it's a string
-
-    // Import Gradio client
-    const gradioClient = require('@gradio/client');
-    const Client = gradioClient.Client || gradioClient;
-
-    // Connect to Gradio API
-    const client = await Client.connect('sumiyon/water_only');
-
-    // Prepare prediction parameters
-    // All parameters are sent as strings to match Gradio API expectations
-    const predictionParams = {
-      crop: String(crop),
-      soil: String(soil),
-      month: String(month),
-      season: String(season),
-      year: fixedYear, // String "2025" as required by Gradio dropdown
-      temperature: String(temperature),
-    };
-
-    console.log('Sending prediction params:', JSON.stringify(predictionParams, null, 2));
-    console.log('Year type:', typeof predictionParams.year, 'Value:', JSON.stringify(predictionParams.year));
-
-    // Make prediction
-    const result = await client.predict('/predict_water', predictionParams);
-
-    // Extract prediction result
-    const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
-
+    // Use the existing helper function which handles the Gradio API correctly
+    const result = await processWaterPrediction(crop, soil, month, season, temperature);
+    
     // Return simplified response format
     res.status(200).json({
-      prediction: `💧 Water Required: ${prediction} Liters / Month`
+      prediction: `💧 Water Required: ${result.prediction} Liters / Month`
     });
   } catch (error) {
+    // Handle validation errors
+    if (error.status) {
+      return res.status(error.status).json({
+        error: error.error || error.message
+      });
+    }
+
     console.error('Water prediction error:', error);
     console.error('Error details:', {
       message: error.message,
@@ -325,14 +256,10 @@ exports.predictWater = async (req, res) => {
       success: error.success
     });
 
-    // Handle Gradio API specific errors with better details
+    // Handle Gradio API specific errors
     if (error.type === 'status' || error.success === false) {
       return res.status(400).json({
-        error: error.message || 'Water prediction failed',
-        details: process.env.NODE_ENV !== 'production' ? {
-          stage: error.stage,
-          code: error.code
-        } : undefined
+        error: error.message || 'Water prediction failed'
       });
     }
 
