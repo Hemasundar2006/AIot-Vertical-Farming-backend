@@ -281,8 +281,10 @@ exports.predictWater = async (req, res) => {
     }
 
     // Year is fixed to 2025 (ignore user input)
-    // Gradio API expects year as a number, not a string
-    const fixedYear = 2025;
+    // Gradio dropdowns may require the exact value format
+    // Try different formats: string "2025", number 2025, or index 0
+    const yearFormats = ["2025", 2025, 0];
+    let lastError = null;
 
     // Import Gradio client
     const gradioClient = require('@gradio/client');
@@ -291,16 +293,39 @@ exports.predictWater = async (req, res) => {
     // Connect to Gradio API
     const client = await Client.connect('sumiyon/water_only');
 
-    // Make prediction
-    // Note: Year must be sent as a number (2025), not a string ("2025")
-    const result = await client.predict('/predict_water', {
+    // Base prediction parameters
+    const baseParams = {
       crop: String(crop),
       soil: String(soil),
       month: String(month),
       season: String(season),
-      year: fixedYear,
       temperature: String(temperature),
-    });
+    };
+
+    // Try each year format until one works
+    let result;
+    for (const yearValue of yearFormats) {
+      try {
+        const predictionParams = {
+          ...baseParams,
+          year: yearValue,
+        };
+
+        console.log(`Trying year format: ${JSON.stringify(yearValue)} (type: ${typeof yearValue})`);
+        result = await client.predict('/predict_water', predictionParams);
+        console.log('Success with year format:', yearValue);
+        break; // Success, exit loop
+      } catch (err) {
+        lastError = err;
+        console.log(`Failed with year format ${yearValue}:`, err.message);
+        // Continue to next format
+      }
+    }
+
+    // If all formats failed, throw the last error
+    if (!result) {
+      throw lastError || new Error('All year formats failed');
+    }
 
     // Extract prediction result
     const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
@@ -311,6 +336,32 @@ exports.predictWater = async (req, res) => {
     });
   } catch (error) {
     console.error('Water prediction error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      type: error.type,
+      stage: error.stage,
+      code: error.code,
+      success: error.success
+    });
+
+    // Handle Gradio API specific errors with better details
+    if (error.type === 'status' || error.success === false) {
+      return res.status(400).json({
+        error: error.message || 'Water prediction failed',
+        details: process.env.NODE_ENV !== 'production' ? {
+          stage: error.stage,
+          code: error.code
+        } : undefined
+      });
+    }
+
+    // Handle connection errors
+    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
+      return res.status(503).json({
+        error: 'Unable to connect to prediction service. Please try again later.'
+      });
+    }
+
     res.status(500).json({
       error: 'Failed to predict water requirements'
     });
