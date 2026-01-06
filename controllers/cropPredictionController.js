@@ -224,59 +224,93 @@ const processWaterPrediction = async (crop, soil, month, season, temperature) =>
   };
 };
 
-// @desc    Predict water requirements based on crop, soil, month, season, and temperature (POST)
+// @desc    Predict water requirements based on crop, soil, month, season, year, and temperature (POST)
 // @route   POST /api/crop/predict-water
 // @access  Public
-// Note: Year is hardcoded to 2025
+// Note: Year is fixed to 2025
 exports.predictWater = async (req, res) => {
   try {
-    const { crop, soil, month, season, temperature } = req.body;
-    const result = await processWaterPrediction(crop, soil, month, season, temperature);
+    const { crop, soil, month, season, year, temperature } = req.body;
     
+    // Validate required fields
+    if (!crop || !soil || !month || !season || temperature === undefined) {
+      return res.status(400).json({
+        error: 'Missing required fields: crop, soil, month, season, and temperature are required'
+      });
+    }
+
+    // Validate crop
+    const validCrops = ['Lettuce', 'Microgreens', 'Tomato', 'Strawberry', 'Pepper/Chili', 'Eggplant', 'Onion'];
+    if (!validCrops.includes(crop)) {
+      return res.status(400).json({
+        error: `Invalid crop. Must be one of: ${validCrops.join(', ')}`
+      });
+    }
+
+    // Validate soil
+    const validSoils = ['Clay', 'Sandy', 'Loamy'];
+    if (!validSoils.includes(soil)) {
+      return res.status(400).json({
+        error: `Invalid soil. Must be one of: ${validSoils.join(', ')}`
+      });
+    }
+
+    // Validate month
+    const validMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    if (!validMonths.includes(month)) {
+      return res.status(400).json({
+        error: `Invalid month. Must be one of: ${validMonths.join(', ')}`
+      });
+    }
+
+    // Validate season
+    const validSeasons = ['Summer', 'Monsoon', 'Winter'];
+    if (!validSeasons.includes(season)) {
+      return res.status(400).json({
+        error: `Invalid season. Must be one of: ${validSeasons.join(', ')}`
+      });
+    }
+
+    // Validate temperature
+    const validTemperatures = [18, 20, 22, 25, 28, 30, 32, 35];
+    const tempNum = typeof temperature === 'string' ? parseFloat(temperature) : temperature;
+    if (isNaN(tempNum) || !validTemperatures.includes(tempNum)) {
+      return res.status(400).json({
+        error: `Invalid temperature. Must be one of: ${validTemperatures.join(', ')}`
+      });
+    }
+
+    // Year is fixed to 2025 (ignore user input)
+    const fixedYear = "2025";
+
+    // Import Gradio client
+    const gradioClient = require('@gradio/client');
+    const Client = gradioClient.Client || gradioClient;
+
+    // Connect to Gradio API
+    const client = await Client.connect('sumiyon/water_only');
+
+    // Make prediction
+    const result = await client.predict('/predict_water', {
+      crop: String(crop),
+      soil: String(soil),
+      month: String(month),
+      season: String(season),
+      year: fixedYear,
+      temperature: String(temperature),
+    });
+
+    // Extract prediction result
+    const prediction = Array.isArray(result.data) ? result.data[0] : result.data;
+
+    // Return simplified response format
     res.status(200).json({
-      message: 'Water prediction generated successfully',
-      ...result,
+      prediction: `💧 Water Required: ${prediction} Liters / Month`
     });
   } catch (error) {
-    // Handle validation errors
-    if (error.status) {
-      return res.status(error.status).json({
-        message: error.message,
-        error: error.error,
-      });
-    }
-
     console.error('Water prediction error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error type:', error.type);
-    console.error('Error message:', error.message);
-
-    // Handle Gradio API specific errors
-    if (error.type === 'status' || error.success === false) {
-      const errorMsg = error.message || 'Prediction service returned an error';
-      return res.status(400).json({
-        message: 'Water prediction failed',
-        error: errorMsg,
-        details: process.env.NODE_ENV !== 'production' ? {
-          endpoint: error.endpoint,
-          stage: error.stage,
-        } : undefined,
-      });
-    }
-
-    // Handle connection errors
-    if (error.message && (error.message.includes('connect') || error.message.includes('ECONNREFUSED'))) {
-      return res.status(503).json({
-        message: 'Water prediction service unavailable',
-        error: 'Unable to connect to prediction service. Please try again later.',
-      });
-    }
-
     res.status(500).json({
-      message: 'Server error during water prediction',
-      error: process.env.NODE_ENV === 'production'
-        ? 'An error occurred while processing your request'
-        : error.message || 'Unknown error occurred',
+      error: 'Failed to predict water requirements'
     });
   }
 };
