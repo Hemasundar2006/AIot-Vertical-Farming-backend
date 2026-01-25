@@ -28,12 +28,12 @@ exports.predictCrop = async (req, res) => {
       });
     }
 
-    const validSeasons = ["Kharif", "Rabi", "Zaid"];
+    const validSeasons = ["Kharif", "Rabi", "Summer"];
     const validMonths = [
       "January", "February", "March", "April", "May", "June",
       "July", "August", "September", "October", "November", "December"
     ];
-    const validSoilTypes = ["Clay", "Loam", "Sandy", "Silt"];
+    const validSoilTypes = ["Clay", "Sandy", "Loamy", "Silty"];
 
     if (!validSeasons.includes(season)) {
       return res.status(400).json({ error: "Invalid season" });
