@@ -19,6 +19,10 @@ exports.predictCrop = async (req, res) => {
   try {
     const { season, month, soil_type } = req.body;
 
+    // Debug logging
+    console.log("Crop Prediction Request Body:", req.body);
+    console.log("Received soil_type:", soil_type, "Type:", typeof soil_type);
+
     // Year is FIXED
     const year = 2025;
 
@@ -36,13 +40,25 @@ exports.predictCrop = async (req, res) => {
     const validSoilTypes = ["Clay", "Sandy", "Loamy", "Silty"];
 
     if (!validSeasons.includes(season)) {
-      return res.status(400).json({ error: "Invalid season" });
+      return res.status(400).json({
+        error: "Invalid season",
+        received: season,
+        validOptions: validSeasons
+      });
     }
     if (!validMonths.includes(month)) {
-      return res.status(400).json({ error: "Invalid month" });
+      return res.status(400).json({
+        error: "Invalid month",
+        received: month,
+        validOptions: validMonths
+      });
     }
     if (!validSoilTypes.includes(soil_type)) {
-      return res.status(400).json({ error: "Invalid soil type" });
+      return res.status(400).json({
+        error: "Invalid soil type",
+        received: soil_type,
+        validOptions: validSoilTypes
+      });
     }
 
     const Client = await getGradioClient();
