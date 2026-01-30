@@ -42,25 +42,28 @@ let latestData = {
 };
 
 /* ================= EMAIL SETUP ✅ ================= */
+const emailUser = process.env.EMAIL_USER?.trim();
+const emailPass = process.env.EMAIL_PASS?.trim();
+const alertTo = process.env.ALERT_TO?.trim();
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+    user: emailUser,
+    pass: emailPass
   }
 });
 
 const sendMail = async (subject, text) => {
   try {
-    // ✅ ENV variables missing => skip email
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !process.env.ALERT_TO) {
-      console.log("⚠️ Email ENV variables missing. Skipping email...");
+    if (!emailUser || !emailPass || !alertTo) {
+      console.log("⚠️ Email ENV vars missing. Skipping email");
       return;
     }
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.ALERT_TO,
+      from: emailUser,
+      to: alertTo,
       subject,
       text
     });
@@ -68,6 +71,8 @@ const sendMail = async (subject, text) => {
     console.log("✅ Email sent:", subject);
   } catch (err) {
     console.error("❌ Email error:", err.message);
+    console.error("   Code:", err.code);
+    if (err.response) console.error("   Response:", err.response);
   }
 };
 
@@ -86,7 +91,7 @@ app.post("/temperature", async (req, res) => {
       });
     }
 
-    // ✅ Store latest
+    // ✅ Store latest data (with motor field also)
     latestData = {
       zones: [
         {
@@ -95,7 +100,8 @@ app.post("/temperature", async (req, res) => {
           temperature: zone1.temp,
           humidity: zone1.hum,
           gas: zone1.gas,
-          light: zone1.light
+          light: zone1.light,
+          motor: zone1.motor || "UNKNOWN"
         },
         {
           id: 2,
@@ -103,7 +109,8 @@ app.post("/temperature", async (req, res) => {
           temperature: zone2.temp,
           humidity: zone2.hum,
           gas: zone2.gas,
-          light: zone2.light
+          light: zone2.light,
+          motor: zone2.motor || "UNKNOWN"
         },
         {
           id: 3,
@@ -111,7 +118,8 @@ app.post("/temperature", async (req, res) => {
           temperature: zone3.temp,
           humidity: zone3.hum,
           gas: zone3.gas,
-          light: zone3.light
+          light: zone3.light,
+          motor: zone3.motor || "UNKNOWN"
         }
       ],
       timestamp: new Date()
@@ -121,18 +129,18 @@ app.post("/temperature", async (req, res) => {
     console.log(JSON.stringify(latestData, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
-    // ✅ Trigger only when soil EXACT 0 / 100
+    // ✅ Motor based triggers (instead of soil 0/100)
     const motorNow = {
-      z1: zone1.soil === 0 ? "ON" : zone1.soil === 100 ? "OFF" : null,
-      z2: zone2.soil === 0 ? "ON" : zone2.soil === 100 ? "OFF" : null,
-      z3: zone3.soil === 0 ? "ON" : zone3.soil === 100 ? "OFF" : null
+      z1: zone1.motor || null,
+      z2: zone2.motor || null,
+      z3: zone3.motor || null
     };
 
     // ✅ Zone 1 email
     if (motorNow.z1 && motorNow.z1 !== lastMotorState.z1) {
       await sendMail(
         `🚨 ZONE 1 Motor ${motorNow.z1}`,
-        `ZONE 1 UPDATE\nSoil = ${zone1.soil}%\nMotor turned ${motorNow.z1}\nTime: ${new Date().toLocaleString()}`
+        `ZONE 1 UPDATE\nSoil=${zone1.soil}%\nTemp=${zone1.temp}°C\nHum=${zone1.hum}%\nMotor=${motorNow.z1}\nTime=${new Date().toLocaleString()}`
       );
       lastMotorState.z1 = motorNow.z1;
     }
@@ -141,7 +149,7 @@ app.post("/temperature", async (req, res) => {
     if (motorNow.z2 && motorNow.z2 !== lastMotorState.z2) {
       await sendMail(
         `🚨 ZONE 2 Motor ${motorNow.z2}`,
-        `ZONE 2 UPDATE\nSoil = ${zone2.soil}%\nMotor turned ${motorNow.z2}\nTime: ${new Date().toLocaleString()}`
+        `ZONE 2 UPDATE\nSoil=${zone2.soil}%\nTemp=${zone2.temp}°C\nHum=${zone2.hum}%\nMotor=${motorNow.z2}\nTime=${new Date().toLocaleString()}`
       );
       lastMotorState.z2 = motorNow.z2;
     }
@@ -150,16 +158,20 @@ app.post("/temperature", async (req, res) => {
     if (motorNow.z3 && motorNow.z3 !== lastMotorState.z3) {
       await sendMail(
         `🚨 ZONE 3 Motor ${motorNow.z3}`,
-        `ZONE 3 UPDATE\nSoil = ${zone3.soil}%\nMotor turned ${motorNow.z3}\nTime: ${new Date().toLocaleString()}`
+        `ZONE 3 UPDATE\nSoil=${zone3.soil}%\nTemp=${zone3.temp}°C\nHum=${zone3.hum}%\nMotor=${motorNow.z3}\nTime=${new Date().toLocaleString()}`
       );
       lastMotorState.z3 = motorNow.z3;
     }
 
     /* ================= OPTIONAL: Save to MongoDB ✅ ================= */
     // If you want to store every ESP32 data record in DB
-    // (your SensorData model imported already)
     try {
-      await SensorData.create({ zone1, zone2, zone3, timestamp: new Date() });
+      await SensorData.create({
+        zone1,
+        zone2,
+        zone3,
+        timestamp: new Date()
+      });
       console.log("✅ Saved sensor data to MongoDB");
     } catch (dbErr) {
       console.log("⚠️ MongoDB save skipped/failed:", dbErr.message);
@@ -167,7 +179,7 @@ app.post("/temperature", async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Data stored successfully + email checked"
+      message: "✅ Data stored + motor email checked"
     });
 
   } catch (error) {
