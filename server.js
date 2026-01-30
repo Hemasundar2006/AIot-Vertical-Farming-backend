@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const nodemailer = require("nodemailer"); // ✅ ADDED
 
 dotenv.config();
 
@@ -40,8 +41,41 @@ let latestData = {
   timestamp: null
 };
 
+/* ================= EMAIL SETUP ✅ ================= */
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+const sendMail = async (subject, text) => {
+  try {
+    // ✅ ENV variables missing => skip email
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !process.env.ALERT_TO) {
+      console.log("⚠️ Email ENV variables missing. Skipping email...");
+      return;
+    }
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.ALERT_TO,
+      subject,
+      text
+    });
+
+    console.log("✅ Email sent:", subject);
+  } catch (err) {
+    console.error("❌ Email error:", err.message);
+  }
+};
+
+/* ================= MOTOR STATE TRACK (Spam Avoid) ✅ ================= */
+let lastMotorState = { z1: null, z2: null, z3: null };
+
 /* ================= RECEIVE ESP32 DATA ================= */
-app.post("/temperature", (req, res) => {
+app.post("/temperature", async (req, res) => {
   try {
     const { zone1, zone2, zone3 } = req.body;
 
@@ -52,6 +86,7 @@ app.post("/temperature", (req, res) => {
       });
     }
 
+    // ✅ Store latest
     latestData = {
       zones: [
         {
@@ -85,9 +120,54 @@ app.post("/temperature", (req, res) => {
     console.log("📡 Data received from ESP32:");
     console.log(JSON.stringify(latestData, null, 2));
 
+    /* ================= EMAIL ALERT LOGIC ✅ ================= */
+    // ✅ Trigger only when soil EXACT 0 / 100
+    const motorNow = {
+      z1: zone1.soil === 0 ? "ON" : zone1.soil === 100 ? "OFF" : null,
+      z2: zone2.soil === 0 ? "ON" : zone2.soil === 100 ? "OFF" : null,
+      z3: zone3.soil === 0 ? "ON" : zone3.soil === 100 ? "OFF" : null
+    };
+
+    // ✅ Zone 1 email
+    if (motorNow.z1 && motorNow.z1 !== lastMotorState.z1) {
+      await sendMail(
+        `🚨 ZONE 1 Motor ${motorNow.z1}`,
+        `ZONE 1 UPDATE\nSoil = ${zone1.soil}%\nMotor turned ${motorNow.z1}\nTime: ${new Date().toLocaleString()}`
+      );
+      lastMotorState.z1 = motorNow.z1;
+    }
+
+    // ✅ Zone 2 email
+    if (motorNow.z2 && motorNow.z2 !== lastMotorState.z2) {
+      await sendMail(
+        `🚨 ZONE 2 Motor ${motorNow.z2}`,
+        `ZONE 2 UPDATE\nSoil = ${zone2.soil}%\nMotor turned ${motorNow.z2}\nTime: ${new Date().toLocaleString()}`
+      );
+      lastMotorState.z2 = motorNow.z2;
+    }
+
+    // ✅ Zone 3 email
+    if (motorNow.z3 && motorNow.z3 !== lastMotorState.z3) {
+      await sendMail(
+        `🚨 ZONE 3 Motor ${motorNow.z3}`,
+        `ZONE 3 UPDATE\nSoil = ${zone3.soil}%\nMotor turned ${motorNow.z3}\nTime: ${new Date().toLocaleString()}`
+      );
+      lastMotorState.z3 = motorNow.z3;
+    }
+
+    /* ================= OPTIONAL: Save to MongoDB ✅ ================= */
+    // If you want to store every ESP32 data record in DB
+    // (your SensorData model imported already)
+    try {
+      await SensorData.create({ zone1, zone2, zone3, timestamp: new Date() });
+      console.log("✅ Saved sensor data to MongoDB");
+    } catch (dbErr) {
+      console.log("⚠️ MongoDB save skipped/failed:", dbErr.message);
+    }
+
     res.status(200).json({
       success: true,
-      message: "Data stored successfully"
+      message: "Data stored successfully + email checked"
     });
 
   } catch (error) {
