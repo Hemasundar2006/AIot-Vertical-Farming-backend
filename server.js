@@ -73,11 +73,13 @@ const sendMail = async (subject, text) => {
     console.error("❌ Email error:", err.message);
     console.error("   Code:", err.code);
     if (err.response) console.error("   Response:", err.response);
+    console.error("   Code:", err.code);
+    if (err.response) console.error("   Response:", err.response);
   }
 };
 
-/* ================= MOTOR STATE TRACK (Spam Avoid) ✅ ================= */
-let lastMotorState = { z1: null, z2: null, z3: null };
+/* ================= SOIL MOISTURE STATE TRACK (Spam Avoid) ✅ ================= */
+let lastSoilState = { z1: null, z2: null, z3: null };
 
 /* ================= RECEIVE ESP32 DATA ================= */
 app.post("/temperature", async (req, res) => {
@@ -129,38 +131,41 @@ app.post("/temperature", async (req, res) => {
     console.log(JSON.stringify(latestData, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
-    // ✅ Motor based triggers (instead of soil 0/100)
-    const motorNow = {
-      z1: zone1.motor || null,
-      z2: zone2.motor || null,
-      z3: zone3.motor || null
-    };
-
-    // ✅ Zone 1 email
-    if (motorNow.z1 && motorNow.z1 !== lastMotorState.z1) {
+    // ✅ Send email when soil moisture reaches 0 (no moisture)
+    // Check Zone 1
+    if (zone1.soil === 0 && lastSoilState.z1 !== 0) {
       await sendMail(
-        `🚨 ZONE 1 Motor ${motorNow.z1}`,
-        `ZONE 1 UPDATE\nSoil=${zone1.soil}%\nTemp=${zone1.temp}°C\nHum=${zone1.hum}%\nMotor=${motorNow.z1}\nTime=${new Date().toLocaleString()}`
+        `🚨 ZONE 1: No Moisture Detected`,
+        `⚠️ ALERT: No moisture in Zone 1 soil!\n\nSoil Moisture: ${zone1.soil}%\nTemperature: ${zone1.temp}°C\nHumidity: ${zone1.hum}%\nGas: ${zone1.gas}\nLight: ${zone1.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 1.`
       );
-      lastMotorState.z1 = motorNow.z1;
+      lastSoilState.z1 = 0;
+    } else if (zone1.soil > 0 && lastSoilState.z1 === 0) {
+      // Reset state when soil moisture is restored
+      lastSoilState.z1 = zone1.soil;
     }
 
-    // ✅ Zone 2 email
-    if (motorNow.z2 && motorNow.z2 !== lastMotorState.z2) {
+    // Check Zone 2
+    if (zone2.soil === 0 && lastSoilState.z2 !== 0) {
       await sendMail(
-        `🚨 ZONE 2 Motor ${motorNow.z2}`,
-        `ZONE 2 UPDATE\nSoil=${zone2.soil}%\nTemp=${zone2.temp}°C\nHum=${zone2.hum}%\nMotor=${motorNow.z2}\nTime=${new Date().toLocaleString()}`
+        `🚨 ZONE 2: No Moisture Detected`,
+        `⚠️ ALERT: No moisture in Zone 2 soil!\n\nSoil Moisture: ${zone2.soil}%\nTemperature: ${zone2.temp}°C\nHumidity: ${zone2.hum}%\nGas: ${zone2.gas}\nLight: ${zone2.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 2.`
       );
-      lastMotorState.z2 = motorNow.z2;
+      lastSoilState.z2 = 0;
+    } else if (zone2.soil > 0 && lastSoilState.z2 === 0) {
+      // Reset state when soil moisture is restored
+      lastSoilState.z2 = zone2.soil;
     }
 
-    // ✅ Zone 3 email
-    if (motorNow.z3 && motorNow.z3 !== lastMotorState.z3) {
+    // Check Zone 3
+    if (zone3.soil === 0 && lastSoilState.z3 !== 0) {
       await sendMail(
-        `🚨 ZONE 3 Motor ${motorNow.z3}`,
-        `ZONE 3 UPDATE\nSoil=${zone3.soil}%\nTemp=${zone3.temp}°C\nHum=${zone3.hum}%\nMotor=${motorNow.z3}\nTime=${new Date().toLocaleString()}`
+        `🚨 ZONE 3: No Moisture Detected`,
+        `⚠️ ALERT: No moisture in Zone 3 soil!\n\nSoil Moisture: ${zone3.soil}%\nTemperature: ${zone3.temp}°C\nHumidity: ${zone3.hum}%\nGas: ${zone3.gas}\nLight: ${zone3.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 3.`
       );
-      lastMotorState.z3 = motorNow.z3;
+      lastSoilState.z3 = 0;
+    } else if (zone3.soil > 0 && lastSoilState.z3 === 0) {
+      // Reset state when soil moisture is restored
+      lastSoilState.z3 = zone3.soil;
     }
 
     /* ================= OPTIONAL: Save to MongoDB ✅ ================= */
@@ -179,7 +184,7 @@ app.post("/temperature", async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "✅ Data stored + motor email checked"
+      message: "✅ Data stored + soil moisture email checked"
     });
 
   } catch (error) {
