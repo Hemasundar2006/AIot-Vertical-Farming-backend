@@ -51,30 +51,46 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: emailUser,
     pass: emailPass
-  }
+  },
+  // Increase timeouts – cloud hosts (e.g. Render) often block SMTP; Gmail may still timeout
+  connectionTimeout: 15000,
+  greetingTimeout: 10000,
+  socketTimeout: 20000
 });
 
-const sendMail = async (subject, text) => {
+// Retry sending email (helps with transient timeouts)
+const sendMail = async (subject, text, retries = 2) => {
   try {
     if (!emailUser || !emailPass || !alertTo) {
       console.log("⚠️ Email ENV vars missing. Skipping email");
       return;
     }
 
-    await transporter.sendMail({
-      from: emailUser,
-      to: alertTo,
-      subject,
-      text
-    });
-
-    console.log("✅ Email sent:", subject);
+    for (let attempt = 1; attempt <= retries + 1; attempt++) {
+      try {
+        await transporter.sendMail({
+          from: emailUser,
+          to: alertTo,
+          subject,
+          text
+        });
+        console.log("✅ Email sent:", subject);
+        return;
+      } catch (sendErr) {
+        const isTimeout = sendErr.code === "ETIMEDOUT" || sendErr.code === "ESOCKET";
+        if (isTimeout && attempt <= retries) {
+          console.log(`⚠️ Email attempt ${attempt} timed out, retrying in 3s...`);
+          await new Promise((r) => setTimeout(r, 3000));
+        } else {
+          throw sendErr;
+        }
+      }
+    }
   } catch (err) {
-    console.error("❌ Email error:", err.message);
-    console.error("   Code:", err.code);
-    if (err.response) console.error("   Response:", err.response);
-    console.error("   Code:", err.code);
-    if (err.response) console.error("   Response:", err.response);
+    console.error("❌ Email error:", err.message, "Code:", err.code);
+    if (err.code === "ETIMEDOUT" || err.code === "ESOCKET") {
+      console.error("   → Gmail SMTP is often blocked on Render/cloud. Use Resend/SendGrid (HTTP API) instead.");
+    }
   }
 };
 
