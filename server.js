@@ -97,49 +97,89 @@ const sendMail = async (subject, text, retries = 2) => {
 /* ================= SOIL MOISTURE STATE TRACK (Spam Avoid) ✅ ================= */
 let lastSoilState = { z1: null, z2: null, z3: null };
 
+/* ================= HELPER: FETCH LATEST SENSOR DATA ================= */
+const getLatestSensorData = async () => {
+  if (latestData.zones && latestData.zones.length > 0) {
+    return latestData;
+  }
+
+  try {
+    const zoneKeys = [
+      { key: "zone1", id: 1 },
+      { key: "zone2", id: 2 },
+      { key: "zone3", id: 3 }
+    ];
+
+    const fetchedZones = [];
+    let maxTimestamp = null;
+
+    for (const z of zoneKeys) {
+      const doc = await SensorData.findOne({ zone: z.key }).sort({ timestamp: -1 });
+      if (doc) {
+        fetchedZones.push({
+          id: z.id,
+          soil: doc.soil,
+          temperature: doc.temp,
+          humidity: doc.hum,
+          gas: doc.gas,
+          light: doc.light,
+          motor: doc.relay || "UNKNOWN"
+        });
+        if (!maxTimestamp || (doc.timestamp && doc.timestamp > maxTimestamp)) {
+          maxTimestamp = doc.timestamp;
+        }
+      }
+    }
+
+    if (fetchedZones.length > 0) {
+      latestData = {
+        zones: fetchedZones,
+        timestamp: maxTimestamp || new Date()
+      };
+    }
+  } catch (err) {
+    console.error("⚠️ Failed to fetch latest data from DB:", err.message);
+  }
+
+  return latestData;
+};
+
 /* ================= RECEIVE ESP32 DATA ================= */
 app.post("/temperature", async (req, res) => {
   try {
     const { zone1, zone2, zone3 } = req.body;
 
-    if (!zone1 || !zone2 || !zone3) {
+    const rawZones = [
+      { key: "zone1", id: 1, data: zone1 },
+      { key: "zone2", id: 2, data: zone2 },
+      { key: "zone3", id: 3, data: zone3 }
+    ];
+
+    const zonesList = [];
+    for (const item of rawZones) {
+      if (item.data) {
+        zonesList.push({
+          id: item.id,
+          soil: item.data.soil,
+          temperature: item.data.temp,
+          humidity: item.data.hum,
+          gas: item.data.gas,
+          light: item.data.light,
+          motor: item.data.motor || "UNKNOWN"
+        });
+      }
+    }
+
+    if (zonesList.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid ESP32 payload"
+        message: "Invalid ESP32 payload: at least one zone required"
       });
     }
 
-    // ✅ Store latest data (with motor field also)
+    // ✅ Store latest data in memory
     latestData = {
-      zones: [
-        {
-          id: 1,
-          soil: zone1.soil,
-          temperature: zone1.temp,
-          humidity: zone1.hum,
-          gas: zone1.gas,
-          light: zone1.light,
-          motor: zone1.motor || "UNKNOWN"
-        },
-        {
-          id: 2,
-          soil: zone2.soil,
-          temperature: zone2.temp,
-          humidity: zone2.hum,
-          gas: zone2.gas,
-          light: zone2.light,
-          motor: zone2.motor || "UNKNOWN"
-        },
-        {
-          id: 3,
-          soil: zone3.soil,
-          temperature: zone3.temp,
-          humidity: zone3.hum,
-          gas: zone3.gas,
-          light: zone3.light,
-          motor: zone3.motor || "UNKNOWN"
-        }
-      ],
+      zones: zonesList,
       timestamp: new Date()
     };
 
@@ -147,52 +187,53 @@ app.post("/temperature", async (req, res) => {
     console.log(JSON.stringify(latestData, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
-    // ✅ Send email when soil moisture reaches 0 (no moisture)
-    // Check Zone 1
-    if (zone1.soil === 0 && lastSoilState.z1 !== 0) {
+    if (zone1 && zone1.soil === 0 && lastSoilState.z1 !== 0) {
       await sendMail(
         `🚨 ZONE 1: No Moisture Detected`,
         `⚠️ ALERT: No moisture in Zone 1 soil!\n\nSoil Moisture: ${zone1.soil}%\nTemperature: ${zone1.temp}°C\nHumidity: ${zone1.hum}%\nGas: ${zone1.gas}\nLight: ${zone1.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 1.`
       );
       lastSoilState.z1 = 0;
-    } else if (zone1.soil > 0 && lastSoilState.z1 === 0) {
-      // Reset state when soil moisture is restored
+    } else if (zone1 && zone1.soil > 0 && lastSoilState.z1 === 0) {
       lastSoilState.z1 = zone1.soil;
     }
 
-    // Check Zone 2
-    if (zone2.soil === 0 && lastSoilState.z2 !== 0) {
+    if (zone2 && zone2.soil === 0 && lastSoilState.z2 !== 0) {
       await sendMail(
         `🚨 ZONE 2: No Moisture Detected`,
         `⚠️ ALERT: No moisture in Zone 2 soil!\n\nSoil Moisture: ${zone2.soil}%\nTemperature: ${zone2.temp}°C\nHumidity: ${zone2.hum}%\nGas: ${zone2.gas}\nLight: ${zone2.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 2.`
       );
       lastSoilState.z2 = 0;
-    } else if (zone2.soil > 0 && lastSoilState.z2 === 0) {
-      // Reset state when soil moisture is restored
+    } else if (zone2 && zone2.soil > 0 && lastSoilState.z2 === 0) {
       lastSoilState.z2 = zone2.soil;
     }
 
-    // Check Zone 3
-    if (zone3.soil === 0 && lastSoilState.z3 !== 0) {
+    if (zone3 && zone3.soil === 0 && lastSoilState.z3 !== 0) {
       await sendMail(
         `🚨 ZONE 3: No Moisture Detected`,
         `⚠️ ALERT: No moisture in Zone 3 soil!\n\nSoil Moisture: ${zone3.soil}%\nTemperature: ${zone3.temp}°C\nHumidity: ${zone3.hum}%\nGas: ${zone3.gas}\nLight: ${zone3.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 3.`
       );
       lastSoilState.z3 = 0;
-    } else if (zone3.soil > 0 && lastSoilState.z3 === 0) {
-      // Reset state when soil moisture is restored
+    } else if (zone3 && zone3.soil > 0 && lastSoilState.z3 === 0) {
       lastSoilState.z3 = zone3.soil;
     }
 
-    /* ================= OPTIONAL: Save to MongoDB ✅ ================= */
-    // If you want to store every ESP32 data record in DB
+    /* ================= SAVE TO MONGODB ✅ ================= */
     try {
-      await SensorData.create({
-        zone1,
-        zone2,
-        zone3,
-        timestamp: new Date()
-      });
+      for (const item of rawZones) {
+        if (item.data) {
+          await SensorData.create({
+            zone: item.key,
+            zoneId: String(item.id),
+            soil: Number(item.data.soil ?? 0),
+            temp: Number(item.data.temp ?? 0),
+            hum: Number(item.data.hum ?? 0),
+            gas: Number(item.data.gas ?? 0),
+            light: Number(item.data.light ?? 0),
+            relay: item.data.motor === "ON" ? "ON" : "OFF",
+            timestamp: new Date()
+          });
+        }
+      }
       console.log("✅ Saved sensor data to MongoDB");
     } catch (dbErr) {
       console.log("⚠️ MongoDB save skipped/failed:", dbErr.message);
@@ -213,14 +254,25 @@ app.post("/temperature", async (req, res) => {
 });
 
 /* ================= GET ALL ZONES ================= */
-app.get("/get_temperature", (req, res) => {
-  res.json(latestData);
+app.get("/get_temperature", async (req, res) => {
+  const data = await getLatestSensorData();
+  res.json(data);
+});
+
+/* ================= GET TEMPERATURE (ALIAS) ================= */
+app.get("/temperature", async (req, res) => {
+  const data = await getLatestSensorData();
+  res.json({
+    success: true,
+    data: data
+  });
 });
 
 /* ================= GET SINGLE ZONE ================= */
-app.get("/zone/:id", (req, res) => {
+app.get("/zone/:id", async (req, res) => {
+  const data = await getLatestSensorData();
   const zoneId = parseInt(req.params.id);
-  const zone = latestData.zones.find(z => z.id === zoneId);
+  const zone = data.zones.find(z => z.id === zoneId);
 
   if (!zone) {
     return res.status(404).json({ message: "Zone not found" });
