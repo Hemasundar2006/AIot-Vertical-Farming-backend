@@ -144,142 +144,206 @@ const getLatestSensorData = async () => {
   return latestData;
 };
 
-/* ================= RECEIVE ESP32 DATA ================= */
-app.post("/temperature", async (req, res) => {
-  try {
-    const { zone1, zone2, zone3 } = req.body;
+/* ================= HELPER: PARSE 3 ZONES PAYLOAD ================= */
+const parse3ZonesPayload = (body) => {
+  if (!body) return [];
 
-    const rawZones = [
-      { key: "zone1", id: 1, data: zone1 },
-      { key: "zone2", id: 2, data: zone2 },
-      { key: "zone3", id: 3, data: zone3 }
+  let rawList = [];
+
+  // Case 1: Array payload e.g. [ { id: 1, soil: ... }, { id: 2, ... }, { id: 3, ... } ]
+  if (Array.isArray(body)) {
+    rawList = body;
+  }
+  // Case 2: Object containing a 'zones' array e.g. { zones: [...] }
+  else if (Array.isArray(body.zones)) {
+    rawList = body.zones;
+  }
+  // Case 3: Keyed object format e.g. { zone1: {...}, zone2: {...}, zone3: {...} }
+  // or { z1: {...}, z2: {...}, z3: {...} } or { "1": {...}, "2": {...}, "3": {...} }
+  else if (typeof body === 'object') {
+    const keysMap = [
+      { keys: ['zone1', 'z1', '1'], id: 1, key: 'zone1' },
+      { keys: ['zone2', 'z2', '2'], id: 2, key: 'zone2' },
+      { keys: ['zone3', 'z3', '3'], id: 3, key: 'zone3' }
     ];
 
-    const zonesList = [];
-    for (const item of rawZones) {
-      if (item.data) {
-        zonesList.push({
-          id: item.id,
-          soil: item.data.soil,
-          temperature: item.data.temp,
-          humidity: item.data.hum,
-          gas: item.data.gas,
-          light: item.data.light,
-          motor: item.data.motor || "UNKNOWN"
-        });
+    for (const item of keysMap) {
+      for (const k of item.keys) {
+        if (body[k] && typeof body[k] === 'object') {
+          rawList.push({
+            id: item.id,
+            zone: item.key,
+            ...body[k]
+          });
+          break;
+        }
       }
     }
+  }
+
+  // Normalize each zone entry into a clean object with ID 1, 2, 3
+  const normalizedZones = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== 'object') continue;
+
+    // Determine numerical ID (1, 2, 3)
+    let id = Number(item.id || item.zoneId || (item.zone ? String(item.zone).replace(/\D/g, '') : null));
+    if (isNaN(id) || !id) {
+      if (item.key === 'zone1' || item.zone === 'zone1') id = 1;
+      else if (item.key === 'zone2' || item.zone === 'zone2') id = 2;
+      else if (item.key === 'zone3' || item.zone === 'zone3') id = 3;
+      else continue;
+    }
+
+    const zoneKey = `zone${id}`;
+    const soil = Number(item.soil ?? 0);
+    const temp = Number(item.temperature ?? item.temp ?? 0);
+    const hum = Number(item.humidity ?? item.hum ?? 0);
+    const gas = Number(item.gas ?? 0);
+    const light = Number(item.light ?? 0);
+    const motor = (item.motor || item.relay || "UNKNOWN").toString().toUpperCase();
+
+    normalizedZones.push({
+      id: id,
+      zone: zoneKey,
+      soil: soil,
+      temp: temp,
+      temperature: temp,
+      hum: hum,
+      humidity: hum,
+      gas: gas,
+      light: light,
+      motor: motor === "ON" ? "ON" : (motor === "OFF" ? "OFF" : "UNKNOWN")
+    });
+  }
+
+  // Sort by id ascending (1, 2, 3)
+  normalizedZones.sort((a, b) => a.id - b.id);
+  return normalizedZones;
+};
+
+/* ================= 3 ZONES POST HANDLER ================= */
+const handle3ZonesPost = async (req, res) => {
+  try {
+    const zonesList = parse3ZonesPayload(req.body);
 
     if (zonesList.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid ESP32 payload: at least one zone required"
+        message: "Invalid payload: at least one zone (with ID 1, 2, or 3) is required"
       });
     }
 
     // ✅ Store latest data in memory
     latestData = {
-      zones: zonesList,
+      zones: zonesList.map(z => ({
+        id: z.id,
+        soil: z.soil,
+        temperature: z.temperature,
+        humidity: z.humidity,
+        gas: z.gas,
+        light: z.light,
+        motor: z.motor
+      })),
       timestamp: new Date()
     };
 
-    console.log("📡 Data received from ESP32:");
+    console.log("📡 3 Zones Data received:");
     console.log(JSON.stringify(latestData, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
-    if (zone1 && zone1.soil === 0 && lastSoilState.z1 !== 0) {
-      await sendMail(
-        `🚨 ZONE 1: No Moisture Detected`,
-        `⚠️ ALERT: No moisture in Zone 1 soil!\n\nSoil Moisture: ${zone1.soil}%\nTemperature: ${zone1.temp}°C\nHumidity: ${zone1.hum}%\nGas: ${zone1.gas}\nLight: ${zone1.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 1.`
-      );
-      lastSoilState.z1 = 0;
-    } else if (zone1 && zone1.soil > 0 && lastSoilState.z1 === 0) {
-      lastSoilState.z1 = zone1.soil;
-    }
-
-    if (zone2 && zone2.soil === 0 && lastSoilState.z2 !== 0) {
-      await sendMail(
-        `🚨 ZONE 2: No Moisture Detected`,
-        `⚠️ ALERT: No moisture in Zone 2 soil!\n\nSoil Moisture: ${zone2.soil}%\nTemperature: ${zone2.temp}°C\nHumidity: ${zone2.hum}%\nGas: ${zone2.gas}\nLight: ${zone2.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 2.`
-      );
-      lastSoilState.z2 = 0;
-    } else if (zone2 && zone2.soil > 0 && lastSoilState.z2 === 0) {
-      lastSoilState.z2 = zone2.soil;
-    }
-
-    if (zone3 && zone3.soil === 0 && lastSoilState.z3 !== 0) {
-      await sendMail(
-        `🚨 ZONE 3: No Moisture Detected`,
-        `⚠️ ALERT: No moisture in Zone 3 soil!\n\nSoil Moisture: ${zone3.soil}%\nTemperature: ${zone3.temp}°C\nHumidity: ${zone3.hum}%\nGas: ${zone3.gas}\nLight: ${zone3.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone 3.`
-      );
-      lastSoilState.z3 = 0;
-    } else if (zone3 && zone3.soil > 0 && lastSoilState.z3 === 0) {
-      lastSoilState.z3 = zone3.soil;
+    for (const z of zonesList) {
+      const zKey = `z${z.id}`;
+      if (z.soil === 0 && lastSoilState[zKey] !== 0) {
+        await sendMail(
+          `🚨 ZONE ${z.id}: No Moisture Detected`,
+          `⚠️ ALERT: No moisture in Zone ${z.id} soil!\n\nSoil Moisture: ${z.soil}%\nTemperature: ${z.temperature}°C\nHumidity: ${z.humidity}%\nGas: ${z.gas}\nLight: ${z.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone ${z.id}.`
+        );
+        lastSoilState[zKey] = 0;
+      } else if (z.soil > 0 && lastSoilState[zKey] === 0) {
+        lastSoilState[zKey] = z.soil;
+      }
     }
 
     /* ================= SAVE TO MONGODB ✅ ================= */
     try {
-      for (const item of rawZones) {
-        if (item.data) {
-          await SensorData.create({
-            zone: item.key,
-            zoneId: String(item.id),
-            soil: Number(item.data.soil ?? 0),
-            temp: Number(item.data.temp ?? 0),
-            hum: Number(item.data.hum ?? 0),
-            gas: Number(item.data.gas ?? 0),
-            light: Number(item.data.light ?? 0),
-            relay: item.data.motor === "ON" ? "ON" : "OFF",
-            timestamp: new Date()
-          });
-        }
+      for (const z of zonesList) {
+        await SensorData.create({
+          zone: z.zone,
+          zoneId: String(z.id),
+          soil: z.soil,
+          temp: z.temp,
+          hum: z.hum,
+          gas: z.gas,
+          light: z.light,
+          relay: z.motor === "ON" ? "ON" : "OFF",
+          timestamp: new Date()
+        });
       }
-      console.log("✅ Saved sensor data to MongoDB");
+      console.log("✅ Saved 3 zones sensor data to MongoDB");
     } catch (dbErr) {
       console.log("⚠️ MongoDB save skipped/failed:", dbErr.message);
     }
 
     res.status(200).json({
       success: true,
-      message: "✅ Data stored + soil moisture email checked"
+      message: "✅ 3 zones data stored successfully",
+      zonesCount: zonesList.length,
+      data: latestData
     });
 
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("❌ Error in 3 zones POST:", error);
     res.status(500).json({
       success: false,
       message: "Server error"
     });
   }
-});
+};
 
-/* ================= GET ALL ZONES ================= */
-app.get("/get_temperature", async (req, res) => {
-  const data = await getLatestSensorData();
-  res.json(data);
-});
-
-/* ================= GET TEMPERATURE (ALIAS) ================= */
-app.get("/temperature", async (req, res) => {
+/* ================= 3 ZONES GET HANDLERS ================= */
+const handle3ZonesGet = async (req, res) => {
   const data = await getLatestSensorData();
   res.json({
     success: true,
     data: data
   });
-});
+};
 
-/* ================= GET SINGLE ZONE ================= */
-app.get("/zone/:id", async (req, res) => {
+const handleSingleZoneGet = async (req, res) => {
   const data = await getLatestSensorData();
   const zoneId = parseInt(req.params.id);
   const zone = data.zones.find(z => z.id === zoneId);
 
   if (!zone) {
-    return res.status(404).json({ message: "Zone not found" });
+    return res.status(404).json({ success: false, message: `Zone ${zoneId} not found` });
   }
 
-  res.json(zone);
+  res.json({
+    success: true,
+    data: zone
+  });
+};
+
+/* ================= REGISTER 3 ZONES POST ROUTES ================= */
+app.post("/3zones", handle3ZonesPost);
+app.post("/3zones_data", handle3ZonesPost);
+app.post("/api/3zones", handle3ZonesPost);
+app.post("/temperature", handle3ZonesPost);
+
+/* ================= REGISTER 3 ZONES GET ROUTES ================= */
+app.get("/3zones", handle3ZonesGet);
+app.get("/3zones_data", handle3ZonesGet);
+app.get("/api/3zones", handle3ZonesGet);
+app.get("/get_temperature", async (req, res) => {
+  const data = await getLatestSensorData();
+  res.json(data);
 });
+app.get("/temperature", handle3ZonesGet);
+
+/* ================= REGISTER SINGLE ZONE GET ROUTES ================= */
+app.get("/3zones/:id", handleSingleZoneGet);
+app.get("/zone/:id", handleSingleZoneGet);
 
 // Global error handler middleware (must be after all routes)
 app.use((err, req, res, next) => {
