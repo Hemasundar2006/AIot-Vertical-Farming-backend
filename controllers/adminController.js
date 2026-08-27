@@ -252,6 +252,16 @@ exports.replaceForm16 = async (req, res) => {
 
 // --- Management ---
 
+exports.getManagementProfiles = async (req, res) => {
+  try {
+    const profiles = await ManagementPerson.find({ isActive: true }).sort({ displayOrder: 1, createdAt: -1 });
+    res.status(200).json(profiles);
+  } catch (error) {
+    console.error("getManagementProfiles Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 exports.createManagementPerson = async (req, res) => {
   try {
     const { name, designation, email, phone, description, displayOrder, isActive } = req.body;

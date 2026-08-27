@@ -17,8 +17,8 @@ const loginLimiter = rateLimit({
   message: { success: false, message: "Too many login attempts, please try again after a minute" },
 });
 
-// Admin-only register route
-router.post("/register", auth, requireRole("admin"), register);
+// Public register route
+router.post("/register", register);
 
 // Login route (rate limited)
 router.post("/login", loginLimiter, login);

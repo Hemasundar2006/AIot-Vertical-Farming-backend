@@ -12,6 +12,7 @@ const {
   updateManagementPerson,
   deleteManagementPerson,
   reorderManagementPerson,
+  getManagementProfiles,
 } = require("../controllers/adminController");
 const auth = require("../middleware/auth");
 const { requireRole } = require("../middleware/rbac");
@@ -70,6 +71,9 @@ const uploadImage = multer({
     }
   },
 });
+
+// Public Management Route
+router.get("/management", getManagementProfiles);
 
 // All routes require admin
 router.use(auth, requireRole("admin"));
