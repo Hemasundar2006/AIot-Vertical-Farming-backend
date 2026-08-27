@@ -509,7 +509,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 /* ================= START SERVER ================= */
-app.listen(PORT, async () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`🚀 Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   
