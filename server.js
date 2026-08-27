@@ -13,7 +13,15 @@ const cropRoutes = require('./routes/cropRoutes');
 const streamRoutes = require('./routes/streamRoutes');
 const sensorRoutes = require('./routes/sensorRoutes');
 const liveRoutes = require('./routes/liveRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const userRoutes = require('./routes/userRoutes');
 const SensorData = require('./models/SensorData');
+
+// Load cron jobs
+require('./jobs/cron');
+
+// Swagger setup
+const { swaggerUi, specs } = require('./config/swagger');
 
 const app = express();
 
@@ -22,6 +30,8 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/user', userRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/chatbot', chatbotRoutes); // Alternative route for compatibility
@@ -29,6 +39,9 @@ app.use('/api/crop', cropRoutes);
 app.use('/api/sensor', sensorRoutes);
 app.use('/api/live', liveRoutes);
 app.use('/api/stream', streamRoutes);
+
+// API Docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 /* ================= HEALTH CHECK ================= */
 app.get("/", (req, res) => {

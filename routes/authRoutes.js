@@ -1,17 +1,30 @@
-const express = require('express');
-const { register, login } = require('../controllers/authController');
-const { checkDBConnection } = require('../middleware/dbMiddleware');
+const express = require("express");
+const { 
+  register, 
+  login, 
+  forgotPassword, 
+  resetPassword 
+} = require("../controllers/authController");
+const auth = require("../middleware/auth");
+const { requireRole } = require("../middleware/rbac");
+const rateLimit = require("express-rate-limit");
 
 const router = express.Router();
 
-// Async wrapper to catch errors
-const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
-};
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Limit each IP to 5 login requests per windowMs
+  message: { success: false, message: "Too many login attempts, please try again after a minute" },
+});
 
-router.post('/register', checkDBConnection, asyncHandler(register));
-router.post('/login', checkDBConnection, asyncHandler(login));
+// Admin-only register route
+router.post("/register", auth, requireRole("admin"), register);
+
+// Login route (rate limited)
+router.post("/login", loginLimiter, login);
+
+// Password reset routes
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 module.exports = router;
-
-

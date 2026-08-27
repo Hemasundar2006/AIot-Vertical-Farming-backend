@@ -1,180 +1,212 @@
-const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-const User = require('../models/User');
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const { z } = require("zod");
+const User = require("../models/User");
+const LoginLog = require("../models/LoginLog");
 
-// Helper to generate JWT
-const generateToken = (userId, role) => {
-  if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is not configured');
+// Zod schemas for validation
+const registerSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(8),
+  role: z.enum(["admin", "user"]),
+  zoneId: z.string().optional(),
+  phone: z.string().optional(),
+}).refine(data => {
+  if (data.role === "user" && !data.zoneId) {
+    return false;
   }
-  return jwt.sign(
-    {
-      id: userId,
+  return true;
+}, { message: "zoneId is required for users", path: ["zoneId"] });
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string(),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string(),
+  newPassword: z.string().min(8),
+});
+
+// Helper to log login attempts
+const logLoginAttempt = async (email, role, success, req) => {
+  try {
+    await LoginLog.create({
+      email,
       role,
-    },
-    process.env.JWT_SECRET,
-    {
-      expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    }
-  );
+      success,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+  } catch (error) {
+    console.error("Failed to log login attempt:", error);
+  }
 };
 
-// @desc    Register new user
-// @route   POST /api/auth/register
-// @access  Public
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
-
-    // Validate required fields
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Please provide name, email, and password' });
+    const parsedData = registerSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      return res.status(400).json({ success: false, errors: parsedData.error.format() });
     }
 
-    // Check MongoDB connection
-    if (mongoose.connection.readyState !== 1) {
-      console.error('MongoDB not connected. State:', mongoose.connection.readyState);
-      return res.status(503).json({
-        message: 'Database connection not available',
-        error: 'Please try again in a few moments. The server is connecting to the database.',
-      });
-    }
+    const { name, email, password, role, zoneId, phone } = parsedData.data;
 
-    // Check if JWT_SECRET is configured
-    if (!process.env.JWT_SECRET) {
-      console.error('JWT_SECRET is not configured');
-      return res.status(500).json({
-        message: 'Server configuration error',
-        error: 'JWT_SECRET is not set. Please configure it in environment variables.',
-      });
-    }
-
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(409).json({ message: 'User with that email already exists' });
+      return res.status(409).json({ success: false, message: "Email already in use" });
     }
 
-    // Create new user
-    const user = await User.create({
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const newUser = await User.create({
       name,
       email,
-      password, // will be hashed by pre-save hook
-      role: role || 'Farmer',
+      passwordHash,
+      role,
+      zoneId: role === "user" ? zoneId : undefined,
+      phone,
     });
-
-    // Generate JWT token
-    const token = generateToken(user._id, user.role);
 
     res.status(201).json({
-      message: 'User registered successfully',
-      token,
+      success: true,
+      message: "User created successfully",
       user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        zoneId: newUser.zoneId,
       },
     });
   } catch (error) {
-    console.error('Register error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error name:', error.name);
-    console.error('Error code:', error.code);
-    
-    // Provide more detailed error in development
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'Server error during registration'
-      : error.message || 'Server error during registration';
-    
-    // Check for specific error types
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({ 
-        message: 'Validation error', 
-        error: Object.values(error.errors).map(e => e.message).join(', ')
-      });
-    }
-    
-    if (error.code === 11000) {
-      return res.status(409).json({ message: 'User with that email already exists' });
-    }
-    
-    if (error.message && error.message.includes('JWT_SECRET')) {
-      return res.status(500).json({ 
-        message: 'Server configuration error: JWT_SECRET not set',
-        error: errorMessage 
-      });
-    }
-
-    // Check for MongoDB connection errors
-    if (error.name === 'MongoServerError' || error.name === 'MongooseError') {
-      return res.status(503).json({
-        message: 'Database error',
-        error: 'Unable to connect to database. Please try again later.',
-      });
-    }
-    
-    res.status(500).json({ 
-      message: 'Server error during registration',
-      error: errorMessage 
-    });
+    console.error("Register Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
 exports.login = async (req, res) => {
+  let foundRole = null;
+  const email = req.body.email;
   try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Please provide email and password' });
+    const parsedData = loginSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      await logLoginAttempt(email || "unknown", null, false, req);
+      return res.status(400).json({ success: false, errors: parsedData.error.format() });
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    const { password } = parsedData.data;
 
+    const user = await User.findOne({ email: parsedData.data.email });
     if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      await logLoginAttempt(email, null, false, req);
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
-    const isMatch = await user.matchPassword(password);
+    foundRole = user.role;
 
+    if (!user.isActive) {
+      await logLoginAttempt(email, foundRole, false, req);
+      return res.status(403).json({ success: false, message: "Account disabled" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      await logLoginAttempt(email, foundRole, false, req);
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
-    const token = generateToken(user._id, user.role);
+    const token = jwt.sign(
+      { userId: user._id, role: user.role, zoneId: user.zoneId },
+      process.env.JWT_SECRET,
+      { expiresIn: "8h" }
+    );
+
+    await logLoginAttempt(email, foundRole, true, req);
 
     res.status(200).json({
-      message: 'Logged in successfully',
+      success: true,
       token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
+        zoneId: user.zoneId,
       },
     });
   } catch (error) {
-    console.error('Login error:', error);
-    
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'Server error during login'
-      : error.message || 'Server error during login';
-    
-    if (error.message.includes('JWT_SECRET')) {
-      return res.status(500).json({ 
-        message: 'Server configuration error: JWT_SECRET not set',
-        error: errorMessage 
-      });
-    }
-    
-    res.status(500).json({ 
-      message: 'Server error during login',
-      error: errorMessage 
-    });
+    console.error("Login Error:", error);
+    await logLoginAttempt(email || "unknown", foundRole, false, req);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
+exports.forgotPassword = async (req, res) => {
+  try {
+    const parsedData = forgotPasswordSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      return res.status(400).json({ success: false, errors: parsedData.error.format() });
+    }
 
+    const { email } = parsedData.data;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // Return success anyway to prevent email enumeration
+      return res.status(200).json({ success: true, message: "If that email is registered, a reset link was sent." });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    user.resetToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+    user.resetTokenExpiry = Date.now() + 15 * 60 * 1000; // 15 mins
+    await user.save();
+
+    // In a real app, send an email here with `resetToken`
+    console.log(`Password reset token for ${email}: ${resetToken}`);
+
+    res.status(200).json({ success: true, message: "If that email is registered, a reset link was sent." });
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  try {
+    const parsedData = resetPasswordSchema.safeParse(req.body);
+    if (!parsedData.success) {
+      return res.status(400).json({ success: false, errors: parsedData.error.format() });
+    }
+
+    const { token, newPassword } = parsedData.data;
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    const user = await User.findOne({
+      resetToken: hashedToken,
+      resetTokenExpiry: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+
+    res.status(200).json({ success: true, message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};

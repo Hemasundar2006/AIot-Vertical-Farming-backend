@@ -1,62 +1,22 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true,
-      minlength: 2,
-      maxlength: 100,
-    },
-    email: {
-      type: String,
-      required: [true, 'Email is required'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: 8,
-      select: false, // never return password by default
-    },
-    role: {
-      type: String,
-      enum: ['Admin', 'Farmer'],
-      default: 'Farmer',
-    },
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  passwordHash: { type: String, required: true },
+  role: { type: String, enum: ["admin", "user"], required: true, default: "user" },
+  zoneId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Zone",
+    required: function () { return this.role === "user"; },
   },
-  {
-    timestamps: true,
-  }
-);
+  phone: { type: String, trim: true },
+  isActive: { type: Boolean, default: true },
+  resetToken: { type: String, select: false },
+  resetTokenExpiry: { type: Date, select: false },
+}, { timestamps: true });
 
-// Hash password before saving user if modified
-userSchema.pre('save', async function () {
-  // Only hash the password if it has been modified (or is new)
-  if (!this.isModified('password')) {
-    return;
-  }
+userSchema.index({ role: 1 });
+userSchema.index({ zoneId: 1 });
 
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-  } catch (error) {
-    throw error; // Mongoose will handle the error
-  }
-});
-
-// Instance method to compare passwords
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return bcrypt.compare(enteredPassword, this.password);
-};
-
-const User = mongoose.model('User', userSchema);
-
-module.exports = User;
-
-
+module.exports = mongoose.model("User", userSchema);
