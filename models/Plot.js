@@ -6,6 +6,9 @@ const PlotSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+  zoneId: {
+    type: Number, // Links to ESP32 FarmContext zones (1, 2, or 3)
+  },
   plotNumber: {
     type: String,
     required: true,
