@@ -4,8 +4,12 @@ const User = require("../models/User");
 const Bill = require("../models/Bill");
 const FormSixteen = require("../models/FormSixteen");
 const ManagementPerson = require("../models/ManagementPerson");
+const LiveStream = require("../models/LiveStream");
+const LoginLog = require("../models/LoginLog");
+const MonthlyReport = require("../models/MonthlyReport");
 const cloudinary = require("../config/cloudinary");
 const { format } = require("fast-csv");
+const bcrypt = require("bcryptjs");
 
 exports.getZones = async (req, res) => {
   try {
@@ -349,6 +353,277 @@ exports.reorderManagementPerson = async (req, res) => {
     res.status(200).json({ success: true, message: "Reordered successfully" });
   } catch (error) {
     console.error("reorderManagementPerson Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// --- Users Management ---
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().populate("zoneId", "name code").sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: users });
+  } catch (error) {
+    console.error("getAllUsers Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.createUser = async (req, res) => {
+  try {
+    const { name, email, password, role, zoneId, phone, isActive } = req.body;
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: "Email already exists" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const user = await User.create({
+      name,
+      email,
+      passwordHash,
+      role,
+      zoneId: role === "user" ? zoneId : undefined,
+      phone,
+      isActive,
+    });
+
+    const userObj = user.toObject();
+    delete userObj.passwordHash;
+    res.status(201).json({ success: true, data: userObj });
+  } catch (error) {
+    console.error("createUser Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.updateUser = async (req, res) => {
+  try {
+    const { name, email, role, zoneId, phone, isActive, password } = req.body;
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    let updates = { name, email, role, phone, isActive };
+    if (role === "user") {
+      updates.zoneId = zoneId;
+    } else {
+      updates.zoneId = null;
+    }
+
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      updates.passwordHash = await bcrypt.hash(password, salt);
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    
+    const userObj = updatedUser.toObject();
+    delete userObj.passwordHash;
+    res.status(200).json({ success: true, data: userObj });
+  } catch (error) {
+    console.error("updateUser Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    console.error("deleteUser Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// --- Zones Management ---
+
+exports.createZone = async (req, res) => {
+  try {
+    const { name, code, location, isActive } = req.body;
+    const existingZone = await Zone.findOne({ code: code.toUpperCase() });
+    
+    if (existingZone) {
+      return res.status(400).json({ success: false, message: "Zone code already exists" });
+    }
+
+    const zone = await Zone.create({ name, code, location, isActive });
+    res.status(201).json({ success: true, data: zone });
+  } catch (error) {
+    console.error("createZone Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.updateZone = async (req, res) => {
+  try {
+    const { name, code, location, isActive } = req.body;
+    const zone = await Zone.findByIdAndUpdate(
+      req.params.id,
+      { name, code, location, isActive },
+      { new: true, runValidators: true }
+    );
+    
+    if (!zone) {
+      return res.status(404).json({ success: false, message: "Zone not found" });
+    }
+    res.status(200).json({ success: true, data: zone });
+  } catch (error) {
+    console.error("updateZone Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.deleteZone = async (req, res) => {
+  try {
+    const zone = await Zone.findByIdAndDelete(req.params.id);
+    if (!zone) {
+      return res.status(404).json({ success: false, message: "Zone not found" });
+    }
+    // Might want to handle users & sensor data associated with this zone later.
+    res.status(200).json({ success: true, message: "Zone deleted successfully" });
+  } catch (error) {
+    console.error("deleteZone Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// --- Bills & Form16 Read/Delete ---
+
+exports.getAllBills = async (req, res) => {
+  try {
+    const bills = await Bill.find().populate("userId", "name email").sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: bills });
+  } catch (error) {
+    console.error("getAllBills Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.deleteBill = async (req, res) => {
+  try {
+    const bill = await Bill.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: "Bill not found" });
+    }
+    
+    await cloudinary.uploader.destroy(bill.cloudinaryPublicId, { resource_type: "raw" });
+    await Bill.findByIdAndDelete(req.params.id);
+    
+    res.status(200).json({ success: true, message: "Bill deleted successfully" });
+  } catch (error) {
+    console.error("deleteBill Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.getAllForm16 = async (req, res) => {
+  try {
+    const form16s = await FormSixteen.find().populate("userId", "name email").sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: form16s });
+  } catch (error) {
+    console.error("getAllForm16 Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.deleteForm16 = async (req, res) => {
+  try {
+    const form16 = await FormSixteen.findById(req.params.id);
+    if (!form16) {
+      return res.status(404).json({ success: false, message: "Form16 not found" });
+    }
+    
+    await cloudinary.uploader.destroy(form16.cloudinaryPublicId, { resource_type: "raw" });
+    await FormSixteen.findByIdAndDelete(req.params.id);
+    
+    res.status(200).json({ success: true, message: "Form16 deleted successfully" });
+  } catch (error) {
+    console.error("deleteForm16 Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// --- Live Streams ---
+
+exports.getAllLiveStreams = async (req, res) => {
+  try {
+    const streams = await LiveStream.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: streams });
+  } catch (error) {
+    console.error("getAllLiveStreams Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.createLiveStream = async (req, res) => {
+  try {
+    const { streamUrl, title, description, isActive } = req.body;
+    const stream = await LiveStream.create({ streamUrl, title, description, isActive });
+    res.status(201).json({ success: true, data: stream });
+  } catch (error) {
+    console.error("createLiveStream Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.updateLiveStream = async (req, res) => {
+  try {
+    const { streamUrl, title, description, isActive } = req.body;
+    const stream = await LiveStream.findByIdAndUpdate(
+      req.params.id,
+      { streamUrl, title, description, isActive },
+      { new: true, runValidators: true }
+    );
+    if (!stream) {
+      return res.status(404).json({ success: false, message: "Stream not found" });
+    }
+    res.status(200).json({ success: true, data: stream });
+  } catch (error) {
+    console.error("updateLiveStream Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.deleteLiveStream = async (req, res) => {
+  try {
+    const stream = await LiveStream.findByIdAndDelete(req.params.id);
+    if (!stream) {
+      return res.status(404).json({ success: false, message: "Stream not found" });
+    }
+    res.status(200).json({ success: true, message: "Stream deleted successfully" });
+  } catch (error) {
+    console.error("deleteLiveStream Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// --- Auditing & Logs ---
+
+exports.getLoginLogs = async (req, res) => {
+  try {
+    const logs = await LoginLog.find().sort({ createdAt: -1 }).limit(100);
+    res.status(200).json({ success: true, data: logs });
+  } catch (error) {
+    console.error("getLoginLogs Error:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.getAllMonthlyReports = async (req, res) => {
+  try {
+    const reports = await MonthlyReport.find().populate("zoneId", "name code").sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: reports });
+  } catch (error) {
+    console.error("getAllMonthlyReports Error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

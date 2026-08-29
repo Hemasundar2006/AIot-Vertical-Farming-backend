@@ -1,5 +1,7 @@
 const express = require('express');
 const { setLiveLink, getLiveLink, getAllLiveLinks } = require('../controllers/liveStreamController');
+const auth = require("../middleware/auth");
+const { requireRole } = require("../middleware/rbac");
 
 const router = express.Router();
 
@@ -9,7 +11,7 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // Set YouTube live link endpoint
-router.post('/set-link', asyncHandler(setLiveLink));
+router.post('/set-link', auth, requireRole("admin"), asyncHandler(setLiveLink));
 
 // Get current active live link endpoint
 router.get('/get-link', asyncHandler(getLiveLink));
