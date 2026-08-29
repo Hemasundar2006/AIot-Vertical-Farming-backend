@@ -7,6 +7,8 @@ const {
   downloadBill,
   getForm16,
   downloadForm16,
+  getMyPlots,
+  getMySettlements,
 } = require("../controllers/userController");
 const auth = require("../middleware/auth");
 const { requireRole } = require("../middleware/rbac");
@@ -28,4 +30,11 @@ router.get("/bills/:id/download", downloadBill);
 router.get("/form16", getForm16);
 router.get("/form16/:id/download", downloadForm16);
 
+
+// Managed Farmland
+router.get("/plots", getMyPlots);
+router.get("/settlements", getMySettlements);
+
 module.exports = router;
+
+

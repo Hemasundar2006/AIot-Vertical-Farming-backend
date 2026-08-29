@@ -29,7 +29,12 @@ const {
   updateLiveStream,
   deleteLiveStream,
   getLoginLogs,
-  getAllMonthlyReports
+  getAllMonthlyReports,
+  getAllNotifications,
+  sendNotification,
+  getAllProjects,
+  uploadProject,
+  deleteProject, getAllPlots, createPlot, updatePlot, getAllSettlements, createSettlement
 } = require("../controllers/adminController");
 const auth = require("../middleware/auth");
 const { requireRole } = require("../middleware/rbac");
@@ -89,6 +94,27 @@ const uploadImage = multer({
   },
 });
 
+// Setup Multer for Video Uploads (Projects)
+const videoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "project-videos",
+    resource_type: "video",
+  },
+});
+
+const uploadVideo = multer({
+  storage: videoStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only video files are allowed"));
+    }
+  },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit for videos
+});
+
 // Public Management Route
 router.get("/management", getManagementProfiles);
 
@@ -138,6 +164,15 @@ router.put("/management/reorder", reorderManagementPerson);
 router.put("/management/:id", uploadImage.single("file"), updateManagementPerson);
 router.delete("/management/:id", deleteManagementPerson);
 
+// Notifications
+router.get("/notifications", getAllNotifications);
+router.post("/notifications", sendNotification);
+
+// Projects
+router.get("/projects", getAllProjects);
+router.post("/projects", uploadVideo.single("file"), uploadProject);
+router.delete("/projects/:id", deleteProject);
+
 // Error handler for Multer
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError || err.message.includes("Only")) {
@@ -146,4 +181,14 @@ router.use((err, req, res, next) => {
   next(err);
 });
 
+
+// Managed Farmland
+router.get("/plots", getAllPlots);
+router.post("/plots", createPlot);
+router.put("/plots/:id", updatePlot);
+router.get("/settlements", getAllSettlements);
+router.post("/settlements", createSettlement);
+
 module.exports = router;
+
+

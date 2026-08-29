@@ -627,3 +627,172 @@ exports.getAllMonthlyReports = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+const Notification = require('../models/Notification');
+const Project = require('../models/Project');
+
+// --- Notifications (Admin) ---
+
+exports.getAllNotifications = async (req, res) => {
+  try {
+    const notifications = await Notification.find().populate('userId', 'name email').sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: notifications });
+  } catch (error) {
+    console.error('getAllNotifications Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.sendNotification = async (req, res) => {
+  try {
+    const { userId, title, message, type } = req.body;
+    
+    // Note: Instead of email, frontend will provide userId directly from a dropdown
+    if (!userId || !title || !message) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    const newNotification = await Notification.create({
+      userId,
+      title,
+      message,
+      type: type || 'info',
+      sentByAdmin: req.user._id
+    });
+
+    res.status(201).json({ success: true, data: newNotification });
+  } catch (error) {
+    console.error('sendNotification Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// --- Projects (Admin) ---
+
+exports.getAllProjects = async (req, res) => {
+  try {
+    const projects = await Project.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: projects });
+  } catch (error) {
+    console.error('getAllProjects Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.uploadProject = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Video file is required' });
+    }
+    const { title, description, clientName, isActive } = req.body;
+
+    const newProject = await Project.create({
+      title,
+      description,
+      clientName,
+      isActive: isActive === 'true' || isActive === true,
+      videoUrl: req.file.path,
+      videoPublicId: req.file.filename,
+      uploadedBy: req.user._id
+    });
+
+    res.status(201).json({ success: true, data: newProject });
+  } catch (error) {
+    console.error('uploadProject Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.deleteProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    // Attempt to destroy from Cloudinary
+    try {
+      await cloudinary.uploader.destroy(project.videoPublicId, { resource_type: 'video' });
+    } catch (e) {
+      console.warn('Failed to delete video from cloudinary:', e);
+    }
+
+    await Project.findByIdAndDelete(req.params.id);
+    res.status(200).json({ success: true, message: 'Project deleted successfully' });
+  } catch (error) {
+    console.error('deleteProject Error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+
+
+exports.getAllPlots = async (req, res) => {
+  try {
+    const plots = await Plot.find().populate('user', 'name email phone');
+    res.status(200).json({ success: true, data: plots });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.createPlot = async (req, res) => {
+  try {
+    const plot = await Plot.create(req.body);
+    res.status(201).json({ success: true, data: plot });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.updatePlot = async (req, res) => {
+  try {
+    const plot = await Plot.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!plot) return res.status(404).json({ success: false, message: 'Plot not found' });
+    res.status(200).json({ success: true, data: plot });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getAllSettlements = async (req, res) => {
+  try {
+    const settlements = await Settlement.find().populate('user', 'name email').populate('plot', 'plotNumber cropType');
+    res.status(200).json({ success: true, data: settlements });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.createSettlement = async (req, res) => {
+  try {
+    const { plotId, userId, yieldKg, marketRate, monthlyServiceFee } = req.body;
+    
+    const grossRevenue = yieldKg * marketRate;
+    const adjustedPool = Math.max(0, grossRevenue - monthlyServiceFee);
+    const soilReserve = adjustedPool * 0.10;
+    const platformMargin = adjustedPool * 0.10;
+    const netPayout = adjustedPool * 0.80;
+    
+    const statementId = "STM-$($(new Date().getFullYear()))-$($(Math.floor(1000 + Math.random() * 9000)))";
+
+    const settlement = await Settlement.create({
+      plot: plotId,
+      user: userId,
+      statementId,
+      totalYieldKg: yieldKg,
+      marketRate,
+      grossRevenue,
+      monthlyServiceFee,
+      soilReserve,
+      platformMargin,
+      netPayout
+    });
+    
+    await Plot.findByIdAndUpdate(plotId, { status: 'Harvested', harvestDate: new Date() });
+
+    res.status(201).json({ success: true, data: settlement });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

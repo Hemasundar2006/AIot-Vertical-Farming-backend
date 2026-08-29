@@ -15,6 +15,8 @@ const sensorRoutes = require('./routes/sensorRoutes');
 const liveRoutes = require('./routes/liveRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const projectRoutes = require('./routes/projectRoutes');
 const SensorData = require('./models/SensorData');
 
 // Load cron jobs
@@ -46,6 +48,8 @@ app.use('/api/crop', cropRoutes);
 app.use('/api/sensor', sensorRoutes);
 app.use('/api/live', liveRoutes);
 app.use('/api/stream', streamRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/projects', projectRoutes);
 
 // API Docs
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));

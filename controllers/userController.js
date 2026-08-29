@@ -1,6 +1,8 @@
 const Zone = require("../models/Zone");
 const SensorData = require("../models/SensorData");
 const Bill = require("../models/Bill");
+const Plot = require("../models/Plot");
+const Settlement = require("../models/Settlement");
 const FormSixteen = require("../models/FormSixteen");
 const MonthlyReport = require("../models/MonthlyReport");
 const cloudinary = require("../config/cloudinary");
@@ -202,5 +204,24 @@ exports.downloadForm16 = async (req, res) => {
   } catch (error) {
     console.error("downloadForm16 Error:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+exports.getMyPlots = async (req, res) => {
+  try {
+    const plots = await Plot.find({ user: req.user.id });
+    res.status(200).json({ success: true, data: plots });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.getMySettlements = async (req, res) => {
+  try {
+    const settlements = await Settlement.find({ user: req.user.id }).populate('plot', 'plotNumber cropType');
+    res.status(200).json({ success: true, data: settlements });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
