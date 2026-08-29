@@ -1,6 +1,8 @@
 const Zone = require("../models/Zone");
 const SensorData = require("../models/SensorData");
 const User = require("../models/User");
+const Plot = require("../models/Plot");
+const Settlement = require("../models/Settlement");
 const Bill = require("../models/Bill");
 const FormSixteen = require("../models/FormSixteen");
 const ManagementPerson = require("../models/ManagementPerson");
@@ -796,3 +798,4 @@ exports.createSettlement = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
