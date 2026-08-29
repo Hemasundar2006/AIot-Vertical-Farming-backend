@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema({
   zoneId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Zone",
-    required: function () { return this.role === "user"; },
+    required: false,
   },
   phone: { type: String, trim: true },
   isActive: { type: Boolean, default: true },

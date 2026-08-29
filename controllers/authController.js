@@ -13,12 +13,7 @@ const registerSchema = z.object({
   role: z.enum(["admin", "user"]),
   zoneId: z.string().optional(),
   phone: z.string().optional(),
-}).refine(data => {
-  if (data.role === "user" && !data.zoneId) {
-    return false;
-  }
-  return true;
-}, { message: "zoneId is required for users", path: ["zoneId"] });
+});
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -71,7 +66,6 @@ exports.register = async (req, res) => {
       email,
       passwordHash,
       role,
-      zoneId: role === "user" ? zoneId : undefined,
       phone,
     });
 
