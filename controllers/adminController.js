@@ -270,7 +270,7 @@ exports.getManagementProfiles = async (req, res) => {
 
 exports.createManagementPerson = async (req, res) => {
   try {
-    const { name, designation, email, phone, description, displayOrder, isActive } = req.body;
+    const { name, designation, email, phone, collegeName, description, displayOrder, isActive } = req.body;
 
     let photoUrl = null;
     let photoPublicId = null;
@@ -281,7 +281,7 @@ exports.createManagementPerson = async (req, res) => {
     }
 
     const person = await ManagementPerson.create({
-      name, designation, email, phone, description, displayOrder, isActive,
+      name, designation, email, phone, collegeName, description, displayOrder, isActive,
       photoUrl, photoPublicId
     });
 
@@ -295,14 +295,14 @@ exports.createManagementPerson = async (req, res) => {
 exports.updateManagementPerson = async (req, res) => {
   try {
     const personId = req.params.id;
-    const { name, designation, email, phone, description, displayOrder, isActive } = req.body;
+    const { name, designation, email, phone, collegeName, description, displayOrder, isActive } = req.body;
 
     const person = await ManagementPerson.findById(personId);
     if (!person) {
       return res.status(404).json({ success: false, message: "Person not found" });
     }
 
-    let updates = { name, designation, email, phone, description, displayOrder, isActive };
+    let updates = { name, designation, email, phone, collegeName, description, displayOrder, isActive };
 
     if (req.file) {
       if (person.photoPublicId) {

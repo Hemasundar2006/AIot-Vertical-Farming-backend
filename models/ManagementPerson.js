@@ -7,6 +7,7 @@ const managementPersonSchema = new mongoose.Schema({
   photoPublicId: { type: String },
   email: { type: String, trim: true, lowercase: true },
   phone: { type: String, trim: true },
+  collegeName: { type: String, trim: true },
   description: { type: String, trim: true },
   displayOrder: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
