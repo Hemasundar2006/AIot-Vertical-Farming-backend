@@ -776,7 +776,8 @@ exports.createSettlement = async (req, res) => {
     const platformMargin = adjustedPool * 0.10;
     const netPayout = adjustedPool * 0.80;
     
-    const statementId = "STM-$($(new Date().getFullYear()))-$($(Math.floor(1000 + Math.random() * 9000)))";
+    const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const statementId = `STM-${dateStr}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const settlement = await Settlement.create({
       plot: plotId,
