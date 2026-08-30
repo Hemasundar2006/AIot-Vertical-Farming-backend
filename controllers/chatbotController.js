@@ -1,6 +1,9 @@
 // @desc    Chat with Gemini AI chatbot
 // @route   POST /api/chatbot
 // @access  Public (or can be protected if needed)
+const crypto = require('crypto');
+const ChatSession = require('../models/ChatSession');
+const ChatMessage = require('../models/ChatMessage');
 
 exports.chat = async (req, res) => {
   try {
@@ -149,5 +152,64 @@ exports.healthCheck = (req, res) => {
       ? 'Chatbot service is ready'
       : 'VITE_GEMINI_API_KEY is not set',
   });
+};
+
+// @desc    Create a new chat session
+// @route   POST /api/chatbot/session
+// @access  Public
+exports.createSession = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Name is required' });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const session = await ChatSession.create({
+      sessionId,
+      name,
+      email
+    });
+
+    res.status(201).json({
+      success: true,
+      sessionId: session.sessionId,
+      message: 'Chat session created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating chat session:', error);
+    res.status(500).json({ success: false, message: 'Failed to create session' });
+  }
+};
+
+// @desc    Save a chat message to a session
+// @route   POST /api/chatbot/session/:sessionId/message
+// @access  Public
+exports.saveMessage = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { role, content, isAudio } = req.body;
+
+    if (!sessionId || !role || !content) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    const message = await ChatMessage.create({
+      sessionId,
+      role,
+      content,
+      isAudio: !!isAudio
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Message saved successfully',
+      data: message
+    });
+  } catch (error) {
+    console.error('Error saving chat message:', error);
+    res.status(500).json({ success: false, message: 'Failed to save message' });
+  }
 };
 
