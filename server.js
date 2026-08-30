@@ -349,92 +349,12 @@ const handleSingleZoneGet = async (req, res) => {
   });
 };
 
-/* ================= ZONE CONTROL POST HANDLER ================= */
-const handleZoneControlPost = async (req, res) => {
-  try {
-    const { zoneId, isHighMoisture, turnOn, soil, motor } = req.body;
-    const id = Number(zoneId || req.body.id);
-    
-    if (!id || (id !== 1 && id !== 2 && id !== 3)) {
-      return res.status(400).json({ success: false, message: "Invalid zoneId (must be 1, 2, or 3)" });
-    }
-
-    let newMoisture = Number(soil);
-    let newMotor = motor;
-
-    if (isNaN(newMoisture)) {
-      const high = isHighMoisture !== undefined ? isHighMoisture : (turnOn !== undefined ? turnOn : false);
-      if (high) {
-        newMoisture = Math.floor(Math.random() * (88 - 72 + 1)) + 72; // > 70
-        newMotor = "OFF";
-      } else {
-        newMoisture = Math.floor(Math.random() * (28 - 15 + 1)) + 15; // < 30
-        newMotor = "ON";
-      }
-    }
-
-    // Ensure latestData exists
-    if (!latestData || !latestData.zones || latestData.zones.length === 0) {
-      latestData = {
-        zones: [
-          { id: 1, soil: 25, temperature: 25, humidity: 60, gas: 400, light: 800, motor: "ON" },
-          { id: 2, soil: 80, temperature: 24, humidity: 55, gas: 380, light: 850, motor: "OFF" },
-          { id: 3, soil: 75, temperature: 26, humidity: 58, gas: 410, light: 820, motor: "OFF" }
-        ],
-        timestamp: new Date()
-      };
-    }
-
-    const finalMotor = newMotor || (newMoisture > 70 ? "OFF" : "ON");
-
-    // Update target zone in backend memory
-    latestData.zones = latestData.zones.map(z => {
-      if (z.id === id) {
-        return {
-          ...z,
-          soil: newMoisture,
-          motor: finalMotor
-        };
-      }
-      return z;
-    });
-    latestData.timestamp = new Date();
-
-    // Save to MongoDB if connected
-    try {
-      await SensorData.create({
-        zone: `zone${id}`,
-        zoneId: String(id),
-        soil: newMoisture,
-        temp: 25,
-        hum: 60,
-        gas: 400,
-        light: 800,
-        relay: finalMotor,
-        timestamp: new Date()
-      });
-    } catch (dbErr) {
-      console.log("MongoDB save skipped:", dbErr.message);
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `Zone ${id} updated: Moisture ${newMoisture}%, Motor ${finalMotor}`,
-      data: latestData
-    });
-
-  } catch (err) {
-    console.error("Error in zone control handler:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-};
 
 /* ================= REGISTER 3 ZONES POST ROUTES ================= */
 app.post("/3zones", handle3ZonesPost);
 app.post("/3zones_data", handle3ZonesPost);
 app.post("/api/3zones", handle3ZonesPost);
-app.post("/api/zone-control", handleZoneControlPost);
-app.post("/zone-control", handleZoneControlPost);
+
 app.post("/temperature", handle3ZonesPost);
 
 /* ================= REGISTER 3 ZONES GET ROUTES ================= */
