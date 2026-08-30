@@ -1,5 +1,5 @@
 const express = require('express');
-const { chat, healthCheck, createSession, saveMessage } = require('../controllers/chatbotController');
+const { chat, healthCheck, getStatus, createSession, saveMessage } = require('../controllers/chatbotController');
 
 const router = express.Router();
 
@@ -11,15 +11,18 @@ const asyncHandler = (fn) => (req, res, next) => {
 // Health check endpoint
 router.get('/health', healthCheck);
 
-// Chat endpoint (stateless)
-router.post('/', asyncHandler(chat));
+// Live database status snapshot endpoint
+router.get('/status', asyncHandler(getStatus));
 
-// Alternative endpoint for compatibility
+// Chat / Question endpoints (all support both body.message and body.question)
+router.post('/', asyncHandler(chat));
 router.post('/chat', asyncHandler(chat));
+router.post('/ask', asyncHandler(chat));
 
 // Session endpoints
 router.post('/session', asyncHandler(createSession));
 router.post('/session/:sessionId/message', asyncHandler(saveMessage));
 
 module.exports = router;
+
 
