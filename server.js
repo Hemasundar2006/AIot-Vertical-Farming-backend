@@ -158,10 +158,8 @@ const getLatestSensorData = async () => {
     }
 
     if (fetchedZones.length > 0) {
-      latestData = {
-        zones: fetchedZones,
-        timestamp: maxTimestamp || new Date()
-      };
+      latestData.zones = fetchedZones;
+      latestData.timestamp = maxTimestamp || new Date();
     }
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
