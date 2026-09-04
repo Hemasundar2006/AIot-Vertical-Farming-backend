@@ -124,23 +124,17 @@ const sendMail = async (subject, text, retries = 2) => {
 /* ================= SOIL MOISTURE STATE TRACK (Spam Avoid) ✅ ================= */
 let lastSoilState = { z1: null, z2: null, z3: null };
 
-/* ================= HELPER: FETCH LATEST SENSOR DATA (ZONES 1 & 2 ONLY) ================= */
+/* ================= HELPER: FETCH LATEST SENSOR DATA ================= */
 const getLatestSensorData = async () => {
   const zoneKeys = [
     { key: "zone1", id: 1 },
-    { key: "zone2", id: 2 }
+    { key: "zone2", id: 2 },
+    { key: "zone3", id: 3 }
   ];
 
   const existingMap = new Map(
-    (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
+    (latestData.zones || []).map(z => [z.id, z])
   );
-
-  if (existingMap.has(1) && existingMap.has(2)) {
-    return {
-      zones: [existingMap.get(1), existingMap.get(2)],
-      timestamp: latestData.timestamp || new Date()
-    };
-  }
 
   try {
     let maxTimestamp = latestData.timestamp ? new Date(latestData.timestamp) : null;
@@ -156,7 +150,8 @@ const getLatestSensorData = async () => {
             humidity: doc.hum,
             gas: doc.gas,
             light: doc.light,
-            motor: doc.relay === "ON" ? "ON" : "OFF"
+            motor: doc.relay === "ON" ? "ON" : "OFF",
+            timestamp: doc.timestamp
           });
           if (!maxTimestamp || (doc.timestamp && doc.timestamp > maxTimestamp)) {
             maxTimestamp = doc.timestamp;
@@ -165,14 +160,17 @@ const getLatestSensorData = async () => {
       }
     }
 
-    const zones1and2 = [existingMap.get(1), existingMap.get(2)].filter(Boolean);
+    const allZones = Array.from(existingMap.values()).sort((a, b) => a.id - b.id);
+    latestData.zones = allZones;
+    latestData.timestamp = maxTimestamp || new Date();
+
     return {
-      zones: zones1and2,
-      timestamp: maxTimestamp || new Date()
+      zones: allZones,
+      timestamp: latestData.timestamp
     };
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
-    return { zones: [], timestamp: null };
+    return latestData || { zones: [], timestamp: null };
   }
 };
 

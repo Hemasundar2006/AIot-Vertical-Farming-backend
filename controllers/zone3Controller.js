@@ -13,10 +13,26 @@ exports.getLatest = async (req, res) => {
       .lean();
 
     if (!doc) {
-      return res.status(404).json({ success: false, message: 'No Zone 3 data found yet' });
+      return res.status(200).json({
+        success: true,
+        zone: 'zone3',
+        connected: false,
+        isLive: false,
+        data: null
+      });
     }
 
-    res.status(200).json({ success: true, zone: 'zone3', data: formatDoc(doc) });
+    const docTime = doc.timestamp ? new Date(doc.timestamp).getTime() : 0;
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 120000; // Live within 2 minutes
+
+    res.status(200).json({
+      success: true,
+      zone: 'zone3',
+      connected: isConnected,
+      isLive: isConnected,
+      data: isConnected ? formatDoc(doc) : null,
+      lastSeen: doc.timestamp
+    });
   } catch (err) {
     console.error('zone3/latest error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
