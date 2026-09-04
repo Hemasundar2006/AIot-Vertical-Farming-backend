@@ -28,6 +28,7 @@ require('./jobs/cron');
 const { swaggerUi, specs } = require('./config/swagger');
 
 const app = express();
+app.set('trust proxy', 1); // Required for express-rate-limit on Render
 
 app.use(cors({
   origin: [
