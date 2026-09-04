@@ -23,14 +23,14 @@ exports.getLatest = async (req, res) => {
     }
 
     const docTime = doc.timestamp ? new Date(doc.timestamp).getTime() : 0;
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 120000; // Live within 2 minutes
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 180000; // Live within 3 minutes
 
     res.status(200).json({
       success: true,
       zone: 'zone3',
       connected: isConnected,
       isLive: isConnected,
-      data: isConnected ? formatDoc(doc) : null,
+      data: formatDoc(doc),
       lastSeen: doc.timestamp
     });
   } catch (err) {
