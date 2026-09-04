@@ -124,49 +124,56 @@ const sendMail = async (subject, text, retries = 2) => {
 /* ================= SOIL MOISTURE STATE TRACK (Spam Avoid) ✅ ================= */
 let lastSoilState = { z1: null, z2: null, z3: null };
 
-/* ================= HELPER: FETCH LATEST SENSOR DATA ================= */
+/* ================= HELPER: FETCH LATEST SENSOR DATA (ZONES 1 & 2 ONLY) ================= */
 const getLatestSensorData = async () => {
-  if (latestData.zones && latestData.zones.length > 0) {
-    return latestData;
+  const zoneKeys = [
+    { key: "zone1", id: 1 },
+    { key: "zone2", id: 2 }
+  ];
+
+  const existingMap = new Map(
+    (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
+  );
+
+  if (existingMap.has(1) && existingMap.has(2)) {
+    return {
+      zones: [existingMap.get(1), existingMap.get(2)],
+      timestamp: latestData.timestamp || new Date()
+    };
   }
 
   try {
-    const zoneKeys = [
-      { key: "zone1", id: 1 },
-      { key: "zone2", id: 2 },
-      { key: "zone3", id: 3 }
-    ];
-
-    const fetchedZones = [];
-    let maxTimestamp = null;
+    let maxTimestamp = latestData.timestamp ? new Date(latestData.timestamp) : null;
 
     for (const z of zoneKeys) {
-      const doc = await SensorData.findOne({ zone: z.key }).sort({ timestamp: -1 });
-      if (doc) {
-        fetchedZones.push({
-          id: z.id,
-          soil: doc.soil,
-          temperature: doc.temp,
-          humidity: doc.hum,
-          gas: doc.gas,
-          light: doc.light,
-          motor: doc.relay === "ON" ? "ON" : "OFF"
-        });
-        if (!maxTimestamp || (doc.timestamp && doc.timestamp > maxTimestamp)) {
-          maxTimestamp = doc.timestamp;
+      if (!existingMap.has(z.id)) {
+        const doc = await SensorData.findOne({ zone: z.key }).sort({ timestamp: -1 });
+        if (doc) {
+          existingMap.set(z.id, {
+            id: z.id,
+            soil: doc.soil,
+            temperature: doc.temp,
+            humidity: doc.hum,
+            gas: doc.gas,
+            light: doc.light,
+            motor: doc.relay === "ON" ? "ON" : "OFF"
+          });
+          if (!maxTimestamp || (doc.timestamp && doc.timestamp > maxTimestamp)) {
+            maxTimestamp = doc.timestamp;
+          }
         }
       }
     }
 
-    if (fetchedZones.length > 0) {
-      latestData.zones = fetchedZones;
-      latestData.timestamp = maxTimestamp || new Date();
-    }
+    const zones1and2 = [existingMap.get(1), existingMap.get(2)].filter(Boolean);
+    return {
+      zones: zones1and2,
+      timestamp: maxTimestamp || new Date()
+    };
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
+    return { zones: [], timestamp: null };
   }
-
-  return latestData;
 };
 
 /* ================= HELPER: PARSE 3 ZONES PAYLOAD ================= */
@@ -252,13 +259,13 @@ const handle3ZonesPost = async (req, res) => {
   try {
     let zonesList = parse3ZonesPayload(req.body);
 
-    // Filter to only keep 1st and 2nd zones
+    // Filter to only keep 1st and 2nd zones (ESP32 #1)
     zonesList = zonesList.filter(z => z.id === 1 || z.id === 2);
 
     if (zonesList.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid payload: at least one zone (with ID 1 or 2) is required"
+        message: "Invalid payload: at least one zone (with ID 1, 2, or 3) is required"
       });
     }
 
@@ -273,7 +280,7 @@ const handle3ZonesPost = async (req, res) => {
       motor: z.motor
     }));
 
-    console.log("📡 Zones 1 & 2 Data received:");
+    console.log("📡 Sensor Zones Data received:");
     console.log(JSON.stringify(zonesList, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
