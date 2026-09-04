@@ -14,6 +14,7 @@ const { format } = require("fast-csv");
 const bcrypt = require("bcryptjs");
 const axios = require("axios");
 const { sendEmail } = require("../config/mailer");
+const { generateSettlementPdfBuffer } = require("../utils/settlementPdf");
 
 exports.getZones = async (req, res) => {
   try {
@@ -770,7 +771,16 @@ exports.getAllSettlements = async (req, res) => {
 
 exports.createSettlement = async (req, res) => {
   try {
-    const { plotId, userId, yieldKg, marketRate, monthlyServiceFee } = req.body;
+    const { 
+      plotId, 
+      userId, 
+      yieldKg, 
+      marketRate, 
+      monthlyServiceFee,
+      pdfBase64,
+      pdfAttachment,
+      promotionalMessage 
+    } = req.body;
     
     // Fetch plot and user details for email & statement
     const [plot, user] = await Promise.all([
@@ -782,8 +792,12 @@ exports.createSettlement = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Plot not found' });
     }
 
-    const grossRevenue = Number(yieldKg) * Number(marketRate);
-    const adjustedPool = Math.max(0, grossRevenue - Number(monthlyServiceFee || 0));
+    const yieldKgNum = Number(yieldKg || 0);
+    const marketRateNum = Number(marketRate || 0);
+    const monthlyFeeNum = Number(monthlyServiceFee || 0);
+
+    const grossRevenue = yieldKgNum * marketRateNum;
+    const adjustedPool = Math.max(0, grossRevenue - monthlyFeeNum);
     const soilReserve = adjustedPool * 0.10;
     const platformMargin = adjustedPool * 0.10;
     const netPayout = adjustedPool * 0.80;
@@ -795,10 +809,10 @@ exports.createSettlement = async (req, res) => {
       plot: plotId,
       user: userId,
       statementId,
-      totalYieldKg: yieldKg,
-      marketRate,
+      totalYieldKg: yieldKgNum,
+      marketRate: marketRateNum,
       grossRevenue,
-      monthlyServiceFee,
+      monthlyServiceFee: monthlyFeeNum,
       soilReserve,
       platformMargin,
       netPayout,
@@ -807,47 +821,57 @@ exports.createSettlement = async (req, res) => {
     
     await Plot.findByIdAndUpdate(plotId, { status: 'Harvested', harvestDate: new Date() });
 
-    // Generate PDF & Email to user
+    // ── GENERATE OR EXTRACT SETTLEMENT PDF BUFFER ─────────────────────────────
+    let pdfBuffer = null;
+    const incomingPdf = pdfBase64 || pdfAttachment;
+
+    if (incomingPdf && typeof incomingPdf === 'string') {
+      try {
+        const cleanBase64 = incomingPdf.replace(/^data:application\/pdf;.*base64,/, '').trim();
+        pdfBuffer = Buffer.from(cleanBase64, 'base64');
+        if (pdfBuffer.length < 100) {
+          pdfBuffer = null; // invalid or empty buffer
+        }
+      } catch (decodeErr) {
+        console.warn('⚠️ Could not decode frontend PDF base64:', decodeErr.message);
+        pdfBuffer = null;
+      }
+    }
+
+    // If no valid PDF from frontend, generate server-side PDF with pdfkit
+    if (!pdfBuffer) {
+      try {
+        pdfBuffer = await generateSettlementPdfBuffer({
+          statementId,
+          statementDate: new Date(),
+          userName: user?.name || 'Valued Farmer / Investor',
+          userEmail: user?.email,
+          plotNumber: plot.plotNumber,
+          cropType: plot.cropType,
+          yieldKg: yieldKgNum,
+          marketRate: marketRateNum,
+          grossRevenue,
+          monthlyServiceFee: monthlyFeeNum,
+          adjustedPool,
+          soilReserve,
+          platformMargin,
+          netPayout,
+          promotionalMessage
+        });
+        console.log(`✅ Generated server-side AgriNex PDF for ${statementId} (${pdfBuffer.length} bytes)`);
+      } catch (genErr) {
+        console.error('❌ Failed to generate server-side PDF:', genErr.message);
+      }
+    }
+
+    // ── EMAIL DISPATCH WITH PAYMENT CONTENT & ATTACHMENT ──────────────────────
     let emailSent = false;
     const targetEmail = user?.email || req.body.email;
 
     if (targetEmail) {
       try {
-        const now = new Date();
-        const pythonPayload = {
-          userName: user?.name || 'Farmer / Investor',
-          month: now.getMonth() + 1,
-          year: now.getFullYear(),
-          amount: Number(netPayout.toFixed(2)),
-          breakdown: [
-            `Statement ID: ${statementId}`,
-            `Plot: #${plot.plotNumber} (${plot.cropType})`,
-            `Harvest Yield: ${yieldKg} kg`,
-            `Market Rate: ₹${marketRate} / kg`,
-            `Gross Revenue: ₹${grossRevenue.toFixed(2)}`,
-            `Monthly Service Fee: ₹${Number(monthlyServiceFee || 0).toFixed(2)}`,
-            `Soil Reserve (10%): ₹${soilReserve.toFixed(2)}`,
-            `Platform Margin (10%): ₹${platformMargin.toFixed(2)}`,
-            `Net Payout: ₹${netPayout.toFixed(2)}`
-          ]
-        };
-
-        let pdfBuffer = null;
-        try {
-          const pythonServiceUrl = process.env.PDF_SERVICE_URL || 'http://localhost:8000';
-          const pdfResponse = await axios.post(`${pythonServiceUrl}/generate-bill-pdf`, pythonPayload, {
-            responseType: 'arraybuffer',
-            timeout: 10000
-          });
-          if (pdfResponse.data) {
-            pdfBuffer = Buffer.from(pdfResponse.data);
-          }
-        } catch (pdfErr) {
-          console.warn('⚠️ PDF Service call skipped/failed:', pdfErr.message);
-        }
-
         const attachments = [];
-        if (pdfBuffer) {
+        if (pdfBuffer && pdfBuffer.length > 0) {
           attachments.push({
             filename: `Settlement_${statementId}.pdf`,
             content: pdfBuffer,
@@ -856,67 +880,119 @@ exports.createSettlement = async (req, res) => {
         }
 
         const emailHtml = `
-          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #1e293b;">
-            <div style="text-align: center; border-bottom: 2px solid #16a34a; padding-bottom: 16px; margin-bottom: 20px;">
-              <h2 style="color: #16a34a; margin: 0; font-size: 24px; letter-spacing: -0.5px;">🌱 AgriNex Vertical Farming</h2>
-              <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 1px;">Official Settlement Statement</p>
+          <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 18px; background-color: #ffffff; color: #1e293b;">
+            <!-- Header -->
+            <div style="background: linear-gradient(135deg, #15803d 0%, #166534 100%); border-radius: 12px; padding: 24px 20px; text-align: center; color: #ffffff; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(21, 128, 61, 0.2);">
+              <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">🌱 AgriNex Vertical Farming</h1>
+              <p style="margin: 6px 0 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.9;">Official Harvest Settlement &amp; Payout Statement</p>
             </div>
-            
-            <p style="font-size: 15px; line-height: 1.5;">Dear <strong>${user?.name || 'Valued Farmer'}</strong>,</p>
-            <p style="font-size: 14px; color: #475569; line-height: 1.6;">Your harvest settlement for <strong>Plot #${plot.plotNumber} (${plot.cropType})</strong> has been calculated and processed. Below is your detailed settlement statement:</p>
-            
-            <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-              <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 12px 16px; font-weight: 600; color: #475569;">Statement ID</td>
-                <td style="padding: 12px 16px; color: #0f172a; text-align: right; font-family: monospace; font-weight: bold;">${statementId}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #475569;">Plot & Crop</td>
-                <td style="padding: 10px 16px; color: #0f172a; text-align: right;">Plot #${plot.plotNumber} (${plot.cropType})</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #475569;">Total Harvest Yield</td>
-                <td style="padding: 10px 16px; color: #0f172a; text-align: right; font-weight: 600;">${yieldKg} kg</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #475569;">Market Rate</td>
-                <td style="padding: 10px 16px; color: #0f172a; text-align: right;">₹${marketRate} / kg</td>
-              </tr>
-              <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 12px 16px; font-weight: 600; color: #475569;">Gross Revenue</td>
-                <td style="padding: 12px 16px; font-weight: 700; color: #0f172a; text-align: right;">₹${grossRevenue.toFixed(2)}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #64748b;">Monthly Service Fee</td>
-                <td style="padding: 10px 16px; color: #dc2626; text-align: right;">- ₹${Number(monthlyServiceFee || 0).toFixed(2)}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #64748b;">Soil Reserve (10%)</td>
-                <td style="padding: 10px 16px; color: #dc2626; text-align: right;">- ₹${soilReserve.toFixed(2)}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 10px 16px; color: #64748b;">Platform Margin (10%)</td>
-                <td style="padding: 10px 16px; color: #dc2626; text-align: right;">- ₹${platformMargin.toFixed(2)}</td>
-              </tr>
-              <tr style="background-color: #ecfdf5; border-top: 2px solid #10b981;">
-                <td style="padding: 14px 16px; font-size: 16px; font-weight: 700; color: #065f46;">Net Payout Amount</td>
-                <td style="padding: 14px 16px; font-size: 18px; font-weight: 800; color: #065f46; text-align: right;">₹${netPayout.toFixed(2)}</td>
-              </tr>
-            </table>
 
-            <p style="font-size: 13px; color: #64748b; margin-top: 16px;">
-              ${pdfBuffer ? '📎 <strong>PDF Attached:</strong> Your formal invoice/statement document is attached to this email.' : 'You can download the full statement PDF anytime from your AgriNex account dashboard.'}
+            <!-- Greeting -->
+            <p style="font-size: 16px; line-height: 1.5; margin-bottom: 8px;">Dear <strong>${user?.name || 'Valued Farmer / Investor'}</strong>,</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-top: 0;">
+              We are pleased to inform you that the harvest settlement for your plot <strong>#${plot.plotNumber} (${plot.cropType})</strong> has been successfully finalized. Below is your itemized financial payout statement:
             </p>
 
-            <div style="border-top: 1px solid #e2e8f0; margin-top: 24px; padding-top: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
-              <p style="margin: 0;">AgriNex Vertical Farming Operations • Automated Settlement Notification</p>
+            <!-- Statement Info Box -->
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 18px; margin: 18px 0; display: flex; justify-content: space-between;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="color: #64748b; font-weight: 600; padding: 4px 0;">Statement ID:</td>
+                  <td style="text-align: right; font-family: monospace; font-weight: 700; color: #0f172a; padding: 4px 0;">${statementId}</td>
+                </tr>
+                <tr>
+                  <td style="color: #64748b; font-weight: 600; padding: 4px 0;">Plot &amp; Crop:</td>
+                  <td style="text-align: right; font-weight: 600; color: #0f172a; padding: 4px 0;">Plot #${plot.plotNumber} (${plot.cropType})</td>
+                </tr>
+                <tr>
+                  <td style="color: #64748b; font-weight: 600; padding: 4px 0;">Disbursement Status:</td>
+                  <td style="text-align: right; font-weight: 700; color: #15803d; padding: 4px 0;">Direct Bank Transfer (NEFT/RTGS)</td>
+                </tr>
+              </table>
+            </div>
+
+            <!-- Detailed Calculations Table -->
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;">
+              <thead>
+                <tr style="background-color: #f1f5f9; border-bottom: 2px solid #cbd5e1;">
+                  <th style="padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; color: #475569; font-weight: 700;">Financial Description</th>
+                  <th style="padding: 12px 16px; text-align: right; font-size: 12px; text-transform: uppercase; color: #475569; font-weight: 700;">Rate / Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 11px 16px; color: #334155;">Total Harvest Yield</td>
+                  <td style="padding: 11px 16px; text-align: right; font-weight: 600; color: #0f172a;">${yieldKgNum.toLocaleString('en-IN')} kg</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 11px 16px; color: #334155;">Market Selling Rate</td>
+                  <td style="padding: 11px 16px; text-align: right; font-weight: 600; color: #0f172a;">₹${marketRateNum.toFixed(2)} / kg</td>
+                </tr>
+                <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                  <td style="padding: 12px 16px; font-weight: 700; color: #1e293b;">Gross Harvest Revenue</td>
+                  <td style="padding: 12px 16px; text-align: right; font-weight: 800; color: #0f172a;">₹${grossRevenue.toFixed(2)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 10px 16px; color: #64748b;">Monthly Maintenance &amp; Service Fee</td>
+                  <td style="padding: 10px 16px; text-align: right; color: #dc2626; font-weight: 600;">- ₹${monthlyFeeNum.toFixed(2)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 10px 16px; color: #64748b;">Soil &amp; Input Reserve (10%)</td>
+                  <td style="padding: 10px 16px; text-align: right; color: #dc2626; font-weight: 600;">- ₹${soilReserve.toFixed(2)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                  <td style="padding: 10px 16px; color: #64748b;">AgriNex Platform Operations Margin (10%)</td>
+                  <td style="padding: 10px 16px; text-align: right; color: #dc2626; font-weight: 600;">- ₹${platformMargin.toFixed(2)}</td>
+                </tr>
+                <!-- Net Payout -->
+                <tr style="background-color: #ecfdf5; border-top: 2px solid #10b981;">
+                  <td style="padding: 16px; font-size: 15px; font-weight: 800; color: #065f46;">TOTAL NET PAYOUT (80%)</td>
+                  <td style="padding: 16px; font-size: 20px; font-weight: 900; color: #065f46; text-align: right;">₹${netPayout.toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Attachment Callout -->
+            <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 18px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 13px; color: #1e40af; font-weight: 600;">
+                📎 <strong>PDF Statement Attached:</strong> An official signed PDF copy (<code>Settlement_${statementId}.pdf</code>) has been attached to this email for your tax, audit, and accounting records.
+              </p>
+            </div>
+
+            <!-- AGRINEX PROMOTIONAL CARD -->
+            <div style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1.5px solid #86efac; border-radius: 14px; padding: 20px; margin: 26px 0; text-align: left;">
+              <div style="display: inline-block; background-color: #15803d; color: #ffffff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px; margin-bottom: 8px;">
+                🌟 GROW WITH AGRINEX
+              </div>
+              <h3 style="color: #14532d; margin: 4px 0 8px 0; font-size: 17px; font-weight: 800;">
+                Expand Your Precision Farming Portfolio &amp; Earn Higher Yields
+              </h3>
+              <p style="color: #166534; font-size: 13px; line-height: 1.6; margin: 0 0 12px 0;">
+                AgriNex is revolutionizing sustainable indoor vertical farming with AIoT climate intelligence, closed-loop hydroponics, and multi-tier aeroponic racks.
+              </p>
+              <ul style="color: #166534; font-size: 13px; line-height: 1.6; margin: 0 0 14px 0; padding-left: 20px;">
+                <li><strong>Re-invest in Next-Gen Zones:</strong> Re-invest your payout directly into upcoming aeroponic zones to earn up to <strong>25% higher annual seasonal ROI</strong>.</li>
+                <li><strong>Exclusive Partner Referral Bonus:</strong> Introduce fellow landowners or investors to AgriNex and receive an ongoing <strong>5% bonus dividend</strong> on every harvest cycle.</li>
+                <li><strong>24/7 Smart Telemetry:</strong> Keep track of humidity, soil sensors, automated irrigation, and harvest schedules directly from your AgriNex mobile and web dashboard.</li>
+              </ul>
+              <div style="text-align: center; margin-top: 16px;">
+                <a href="https://agrinex.vercel.app/" style="background-color: #15803d; color: #ffffff; text-decoration: none; padding: 12px 24px; font-size: 14px; font-weight: 700; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(21, 128, 61, 0.3);">
+                  🚀 Explore AgriNex Growth Opportunities
+                </a>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="border-top: 1px solid #e2e8f0; margin-top: 28px; padding-top: 18px; text-align: center; color: #94a3b8; font-size: 12px;">
+              <p style="margin: 0 0 4px 0; font-weight: 600; color: #64748b;">AgriNex Smart Vertical Farming Pvt. Ltd.</p>
+              <p style="margin: 0;">Automated Agricultural IoT &bull; Investor Services: <a href="mailto:support@agrinex.com" style="color: #15803d; text-decoration: none;">support@agrinex.com</a> &bull; <a href="https://agrinex.vercel.app/" style="color: #15803d; text-decoration: none;">agrinex.vercel.app</a></p>
             </div>
           </div>
         `;
 
         const mailResult = await sendEmail({
           to: targetEmail,
-          subject: `🌱 AgriNex Settlement Statement: Plot #${plot.plotNumber} (${statementId})`,
+          subject: `🌱 AgriNex Harvest Settlement Statement: Plot #${plot.plotNumber} (${statementId})`,
           html: emailHtml,
           attachments
         });
@@ -931,8 +1007,9 @@ exports.createSettlement = async (req, res) => {
       success: true,
       data: settlement,
       emailSent,
+      hasPdfAttachment: Boolean(pdfBuffer && pdfBuffer.length > 0),
       message: emailSent
-        ? `Settlement created and statement emailed to ${targetEmail}`
+        ? `Settlement created and statement with attached PDF emailed to ${targetEmail}`
         : 'Settlement created successfully'
     });
   } catch (error) {
@@ -940,4 +1017,3 @@ exports.createSettlement = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
