@@ -17,6 +17,8 @@ const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const projectRoutes = require('./routes/projectRoutes');
+const zone3Routes = require('./routes/zone3Routes');
+const { store: latestData, upsertZone } = require('./shared/latestData');
 const SensorData = require('./models/SensorData');
 
 // Load cron jobs
@@ -50,6 +52,7 @@ app.use('/api/live', liveRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/zone3', zone3Routes);  // Zone 3 dedicated endpoints
 
 // API Docs
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
@@ -59,11 +62,9 @@ app.get("/", (req, res) => {
   res.send("✅ AIoT Vertical Farming Backend Running");
 });
 
-/* ================= STORAGE ================= */
-let latestData = {
-  zones: [],
-  timestamp: null
-};
+/* ================= STORAGE (shared with zone3Controller) ================= */
+// latestData is now the shared store from ./shared/latestData.js
+// Both ESP32 #1 (zones 1 & 2) and ESP32 #2 (zone 3) update the same object.
 
 /* ================= EMAIL SETUP ✅ ================= */
 const emailUser = process.env.EMAIL_USER?.trim();
@@ -249,31 +250,31 @@ const parse3ZonesPayload = (body) => {
 /* ================= 3 ZONES POST HANDLER ================= */
 const handle3ZonesPost = async (req, res) => {
   try {
-    const zonesList = parse3ZonesPayload(req.body);
+    let zonesList = parse3ZonesPayload(req.body);
+
+    // Filter to only keep 1st and 2nd zones
+    zonesList = zonesList.filter(z => z.id === 1 || z.id === 2);
 
     if (zonesList.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid payload: at least one zone (with ID 1, 2, or 3) is required"
+        message: "Invalid payload: at least one zone (with ID 1 or 2) is required"
       });
     }
 
-    // ✅ Store latest data in memory
-    latestData = {
-      zones: zonesList.map(z => ({
-        id: z.id,
-        soil: z.soil,
-        temperature: z.temperature,
-        humidity: z.humidity,
-        gas: z.gas,
-        light: z.light,
-        motor: z.motor
-      })),
-      timestamp: new Date()
-    };
+    // ✅ Store latest data in memory via shared store
+    zonesList.forEach(z => upsertZone({
+      id: z.id,
+      soil: z.soil,
+      temperature: z.temperature,
+      humidity: z.humidity,
+      gas: z.gas,
+      light: z.light,
+      motor: z.motor
+    }));
 
-    console.log("📡 3 Zones Data received:");
-    console.log(JSON.stringify(latestData, null, 2));
+    console.log("📡 Zones 1 & 2 Data received:");
+    console.log(JSON.stringify(zonesList, null, 2));
 
     /* ================= EMAIL ALERT LOGIC ✅ ================= */
     for (const z of zonesList) {
@@ -311,13 +312,93 @@ const handle3ZonesPost = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "✅ 3 zones data stored successfully",
+      message: "✅ Zones 1 & 2 data stored successfully",
       zonesCount: zonesList.length,
       data: latestData
     });
 
   } catch (error) {
     console.error("❌ Error in 3 zones POST:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+};
+
+/* ================= ZONE 3 POST HANDLER ================= */
+const handleZone3Post = async (req, res) => {
+  try {
+    let zonesList = parse3ZonesPayload(req.body);
+
+    // Filter to only keep 3rd zone
+    zonesList = zonesList.filter(z => z.id === 3);
+
+    if (zonesList.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payload: zone 3 data is required"
+      });
+    }
+
+    // ✅ Store latest data in memory via shared store
+    zonesList.forEach(z => upsertZone({
+      id: z.id,
+      soil: z.soil,
+      temperature: z.temperature,
+      humidity: z.humidity,
+      gas: z.gas,
+      light: z.light,
+      motor: z.motor
+    }));
+
+    console.log("📡 Zone 3 Data received:");
+    console.log(JSON.stringify(zonesList, null, 2));
+
+    /* ================= EMAIL ALERT LOGIC ✅ ================= */
+    for (const z of zonesList) {
+      const zKey = `z${z.id}`;
+      if (z.soil === 0 && lastSoilState[zKey] !== 0) {
+        await sendMail(
+          `🚨 ZONE ${z.id}: No Moisture Detected`,
+          `⚠️ ALERT: No moisture in Zone ${z.id} soil!\n\nSoil Moisture: ${z.soil}%\nTemperature: ${z.temperature}°C\nHumidity: ${z.humidity}%\nGas: ${z.gas}\nLight: ${z.light}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check the irrigation system for Zone ${z.id}.`
+        );
+        lastSoilState[zKey] = 0;
+      } else if (z.soil > 0 && lastSoilState[zKey] === 0) {
+        lastSoilState[zKey] = z.soil;
+      }
+    }
+
+    /* ================= SAVE TO MONGODB ✅ ================= */
+    try {
+      for (const z of zonesList) {
+        await SensorData.create({
+          zone: z.zone,
+          zoneId: String(z.id),
+          soil: z.soil,
+          temp: z.temp,
+          hum: z.hum,
+          gas: z.gas,
+          light: z.light,
+          relay: z.motor === "ON" ? "ON" : "OFF",
+          timestamp: new Date()
+        });
+      }
+      console.log("✅ Saved zone 3 sensor data to MongoDB");
+    } catch (dbErr) {
+      console.log("⚠️ MongoDB save skipped/failed:", dbErr.message);
+    }
+
+    const zone3Data = latestData.zones.find(z => z.id === 3) || zonesList[0];
+
+    res.status(200).json({
+      success: true,
+      message: "✅ Zone 3 data stored successfully",
+      data: zone3Data
+    });
+
+  } catch (error) {
+    console.error("❌ Error in zone 3 POST:", error);
     res.status(500).json({
       success: false,
       message: "Server error"
@@ -356,6 +437,12 @@ app.post("/3zones_data", handle3ZonesPost);
 app.post("/api/3zones", handle3ZonesPost);
 
 app.post("/temperature", handle3ZonesPost);
+
+/* ================= REGISTER ZONE 3 POST ROUTES ================= */
+// NOTE: POST /api/zone3/data is handled by zone3Routes (app.use('/api/zone3', zone3Routes))
+// These aliases point directly to the in-server handler for backward compat:
+app.post("/zone3", handleZone3Post);
+app.post("/zone3_data", handleZone3Post);
 
 /* ================= REGISTER 3 ZONES GET ROUTES ================= */
 app.get("/3zones", handle3ZonesGet);
