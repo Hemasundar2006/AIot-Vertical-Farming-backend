@@ -14,13 +14,15 @@ const router = express.Router();
 // Wrap async handlers to forward errors to global error handler
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// POST /api/zone3/data          – receive sensor reading from 2nd ESP32
+// POST /api/zone3 or /api/zone3/data   – receive sensor reading from ESP32 for Zone 3 only
+router.post('/',          asyncHandler(receiveData));
 router.post('/data',      asyncHandler(receiveData));
 
-// GET /api/zone3/latest            – latest Zone 3 reading from DB
+// GET /api/zone3 or /api/zone3/latest     – latest Zone 3 reading
+router.get('/',           asyncHandler(getLatest));
 router.get('/latest',     asyncHandler(getLatest));
 
-// GET /api/zone3/all-latest        – latest reading for every zone (dashboard)
+// GET /api/zone3/all-latest               – latest Zone 3 reading (1st and 2nd zones excluded)
 router.get('/all-latest', asyncHandler(getAllLatest));
 
 // GET /api/zone3/history?limit=50  – last N Zone 3 readings

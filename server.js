@@ -443,11 +443,18 @@ app.post("/api/3zones", handle3ZonesPost);
 
 app.post("/temperature", handle3ZonesPost);
 
-/* ================= REGISTER ZONE 3 POST ROUTES ================= */
-// NOTE: POST /api/zone3/data is handled by zone3Routes (app.use('/api/zone3', zone3Routes))
+/* ================= REGISTER ZONE 3 ROUTES ================= */
+// NOTE: /api/zone3 routes are handled by zone3Routes (app.use('/api/zone3', zone3Routes))
 // These aliases point directly to the in-server handler for backward compat:
 app.post("/zone3", handleZone3Post);
 app.post("/zone3_data", handleZone3Post);
+
+const handleZone3Get = async (req, res) => {
+  req.params.id = 3;
+  return handleSingleZoneGet(req, res);
+};
+app.get("/zone3", handleZone3Get);
+app.get("/zone3_data", handleZone3Get);
 
 /* ================= REGISTER 3 ZONES GET ROUTES ================= */
 app.get("/3zones", handle3ZonesGet);

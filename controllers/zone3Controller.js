@@ -8,11 +8,14 @@ const ZONE3_KEY = 'zone3';
 // @access Public
 exports.getLatest = async (req, res) => {
   try {
-    const doc = await SensorData.findOne({ zone: ZONE3_KEY })
+    let doc = await SensorData.findOne({ zone: ZONE3_KEY })
       .sort({ timestamp: -1 })
       .lean();
 
-    if (!doc) {
+    // Check in-memory store fallback if DB document is missing
+    const memZone = (store.zones || []).find((z) => z.id === 3);
+
+    if (!doc && !memZone) {
       return res.status(200).json({
         success: true,
         zone: 'zone3',
@@ -22,16 +25,33 @@ exports.getLatest = async (req, res) => {
       });
     }
 
-    const docTime = doc.timestamp ? new Date(doc.timestamp).getTime() : 0;
+    const docTime = doc && doc.timestamp
+      ? new Date(doc.timestamp).getTime()
+      : (memZone && store.timestamp ? new Date(store.timestamp).getTime() : 0);
     const isConnected = docTime > 0 && (Date.now() - docTime) < 60000; // Disconnected if no ping within 60s
+
+    const formattedData = doc
+      ? formatDoc(doc)
+      : {
+          id: 'live',
+          zone: 'zone3',
+          zoneId: '3',
+          soil: memZone.soil,
+          temperature: memZone.temperature,
+          humidity: memZone.humidity,
+          gas: memZone.gas,
+          light: memZone.light,
+          motor: memZone.motor,
+          timestamp: store.timestamp || new Date(),
+        };
 
     res.status(200).json({
       success: true,
       zone: 'zone3',
       connected: isConnected,
       isLive: isConnected,
-      data: isConnected ? formatDoc(doc) : null,
-      lastSeen: doc.timestamp
+      data: formattedData,
+      lastSeen: doc ? doc.timestamp : (store.timestamp || null)
     });
   } catch (err) {
     console.error('zone3/latest error:', err);
@@ -39,20 +59,38 @@ exports.getLatest = async (req, res) => {
   }
 };
 
-// @desc   Get latest readings for ALL 3 zones (live dashboard)
+// @desc   Get latest reading for Zone 3 only (1st and 2nd zones excluded)
 // @route  GET /api/zone3/all-latest
 // @access Public
 exports.getAllLatest = async (req, res) => {
   try {
-    const zones = ['zone1', 'zone2', 'zone3'];
-    const results = {};
+    const doc = await SensorData.findOne({ zone: ZONE3_KEY }).sort({ timestamp: -1 }).lean();
+    const memZone = (store.zones || []).find((z) => z.id === 3);
 
-    for (const z of zones) {
-      const doc = await SensorData.findOne({ zone: z }).sort({ timestamp: -1 }).lean();
-      results[z] = doc ? formatDoc(doc) : null;
-    }
+    const formattedData = doc
+      ? formatDoc(doc)
+      : (memZone ? {
+          id: 'live',
+          zone: 'zone3',
+          zoneId: '3',
+          soil: memZone.soil,
+          temperature: memZone.temperature,
+          humidity: memZone.humidity,
+          gas: memZone.gas,
+          light: memZone.light,
+          motor: memZone.motor,
+          timestamp: store.timestamp || new Date(),
+        } : null);
 
-    res.status(200).json({ success: true, timestamp: new Date(), zones: results });
+    res.status(200).json({
+      success: true,
+      timestamp: new Date(),
+      zone: 'zone3',
+      data: formattedData,
+      zones: {
+        zone3: formattedData
+      }
+    });
   } catch (err) {
     console.error('zone3/all-latest error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -173,24 +211,55 @@ exports.receiveData = async (req, res) => {
     }
 
     // ── Parse flexible payload from ESP32 ────────────────────────────────────
-    // Accepted formats:
-    //   1. Flat:   { soil, temperature/temp, humidity/hum, gas, light, motor/relay }
-    //   2. Nested: { zone3: { soil, ... } }  or  { zones: [{ id:3, ... }] }
-    let raw = body;
+    // Exclude 1st and 2nd zones completely. Only accept Zone 3 data.
+    let raw = null;
 
     if (body.zone3 && typeof body.zone3 === 'object') {
       raw = body.zone3;
     } else if (Array.isArray(body.zones)) {
-      raw = body.zones.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || {};
-    } else if (Array.isArray(body) && body.length > 0) {
-      raw = body.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || body[0];
+      raw = body.zones.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || null;
+    } else if (Array.isArray(body)) {
+      raw = body.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || null;
+    } else {
+      // Direct object: check if it's explicitly designated as zone 1 or zone 2
+      const explicitId = Number(body.id || body.zoneId);
+      const explicitZone = String(body.zone || '').toLowerCase();
+
+      if (explicitId === 1 || explicitId === 2 || explicitZone === 'zone1' || explicitZone === 'zone2') {
+        return res.status(400).json({
+          success: false,
+          message: 'Zone 1 and 2 data is not accepted on Zone 3 route. Only Zone 3 data is accepted.',
+        });
+      }
+
+      // If zone 1 or 2 keys exist without zone 3
+      if ((body.zone1 || body.zone2 || body.z1 || body.z2) && !body.zone3 && !body.z3) {
+        return res.status(400).json({
+          success: false,
+          message: 'Zone 1 and 2 data is not accepted on Zone 3 route. Only Zone 3 data is accepted.',
+        });
+      }
+
+      if (body.z3 && typeof body.z3 === 'object') {
+        raw = body.z3;
+      } else {
+        // Flat payload for Zone 3
+        raw = body;
+      }
     }
 
-    const soil  = Number(raw.soil ?? 0);
+    if (!raw) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Zone 3 data found in payload. Zone 1 and 2 data is excluded.',
+      });
+    }
+
+    const soil  = Number(raw.soil ?? raw.moisture ?? raw.soilMoisture ?? 0);
     const temp  = Number(raw.temperature ?? raw.temp ?? 0);
     const hum   = Number(raw.humidity   ?? raw.hum  ?? 0);
     const gas   = Number(raw.gas   ?? 0);
-    const light = Number(raw.light ?? 0);
+    const light = Number(raw.light ?? raw.ldr ?? 0);
     const relay = String(raw.motor ?? raw.relay ?? 'OFF').toUpperCase() === 'ON' ? 'ON' : 'OFF';
 
     console.log('📡 [ESP32 #2] Zone 3 data received:', { soil, temp, hum, gas, light, relay });
@@ -227,7 +296,7 @@ exports.receiveData = async (req, res) => {
     res.status(200).json({
       success: true,
       message: '✅ Zone 3 data received and stored',
-      data: { id: 3, soil, temperature: temp, humidity: hum, gas, light, motor: relay },
+      data: { id: 3, zone: 'zone3', soil, temperature: temp, humidity: hum, gas, light, motor: relay },
     });
   } catch (err) {
     console.error('zone3/receiveData error:', err);
