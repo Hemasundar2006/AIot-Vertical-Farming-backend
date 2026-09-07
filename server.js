@@ -131,12 +131,15 @@ const getLatestSensorData = async () => {
     { key: "zone2", id: 2 }
   ];
 
+  const now = Date.now();
+  const TIMEOUT_MS = 60000; // 60s timeout for live status
+
   const existingMap = new Map(
     (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
   );
 
   try {
-    let maxTimestamp = latestData.timestamp ? new Date(latestData.timestamp) : null;
+    let maxTimestamp = null;
 
     for (const z of zoneKeys) {
       if (!existingMap.has(z.id)) {
@@ -153,23 +156,39 @@ const getLatestSensorData = async () => {
             motor: doc.relay === "ON" ? "ON" : "OFF",
             timestamp: doc.timestamp
           });
-          if (!maxTimestamp || (doc.timestamp && doc.timestamp > maxTimestamp)) {
-            maxTimestamp = doc.timestamp;
-          }
         }
       }
     }
 
-    const zones1and2 = [existingMap.get(1), existingMap.get(2)].filter(Boolean);
+    const zones1and2 = [existingMap.get(1), existingMap.get(2)]
+      .filter(Boolean)
+      .map(z => {
+        const ts = z.timestamp ? new Date(z.timestamp).getTime() : 0;
+        const isLive = ts > 0 && (now - ts) < TIMEOUT_MS;
+        if (z.timestamp && (!maxTimestamp || new Date(z.timestamp) > maxTimestamp)) {
+          maxTimestamp = new Date(z.timestamp);
+        }
+        return {
+          ...z,
+          connected: isLive,
+          isLive: isLive
+        };
+      });
 
     return {
       zones: zones1and2,
-      timestamp: maxTimestamp || new Date()
+      timestamp: maxTimestamp || null
     };
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
-    const fallbackZones = (latestData.zones || []).filter(z => z.id === 1 || z.id === 2);
-    return { zones: fallbackZones, timestamp: latestData.timestamp || null };
+    const fallbackZones = (latestData.zones || [])
+      .filter(z => z.id === 1 || z.id === 2)
+      .map(z => {
+        const ts = z.timestamp ? new Date(z.timestamp).getTime() : 0;
+        const isLive = ts > 0 && (now - ts) < TIMEOUT_MS;
+        return { ...z, connected: isLive, isLive };
+      });
+    return { zones: fallbackZones, timestamp: null };
   }
 };
 
@@ -454,12 +473,9 @@ app.post("/temperature", handle3ZonesPost);
 app.post("/zone3", handleZone3Post);
 app.post("/zone3_data", handleZone3Post);
 
-const handleZone3Get = async (req, res) => {
-  req.params.id = 3;
-  return handleSingleZoneGet(req, res);
-};
-app.get("/zone3", handleZone3Get);
-app.get("/zone3_data", handleZone3Get);
+const zone3Controller = require('./controllers/zone3Controller');
+app.get("/zone3", zone3Controller.getLatest);
+app.get("/zone3_data", zone3Controller.getLatest);
 
 /* ================= REGISTER 3 ZONES GET ROUTES ================= */
 app.get("/3zones", handle3ZonesGet);

@@ -14,14 +14,18 @@ const store = {
  * @param {{ id: number, soil: number, temperature: number, humidity: number, gas: number, light: number, motor: string }} zoneData
  */
 function upsertZone(zoneData) {
+  const now = new Date();
+  const dataWithTime = {
+    ...zoneData,
+    timestamp: zoneData.timestamp || now
+  };
   const idx = store.zones.findIndex((z) => z.id === zoneData.id);
   if (idx !== -1) {
-    store.zones[idx] = zoneData;
+    store.zones[idx] = dataWithTime;
   } else {
-    store.zones.push(zoneData);
+    store.zones.push(dataWithTime);
   }
   store.zones.sort((a, b) => a.id - b.id);
-  store.timestamp = new Date();
 }
 
 module.exports = { store, upsertZone };

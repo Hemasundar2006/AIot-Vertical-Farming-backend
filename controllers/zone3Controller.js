@@ -27,7 +27,7 @@ exports.getLatest = async (req, res) => {
 
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
-      : (memZone && store.timestamp ? new Date(store.timestamp).getTime() : 0);
+      : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
     const isConnected = docTime > 0 && (Date.now() - docTime) < 60000; // Disconnected if no ping within 60s
 
     const formattedData = doc
@@ -42,7 +42,7 @@ exports.getLatest = async (req, res) => {
           gas: memZone.gas,
           light: memZone.light,
           motor: memZone.motor,
-          timestamp: store.timestamp || new Date(),
+          timestamp: memZone.timestamp || new Date(),
         };
 
     res.status(200).json({
@@ -51,7 +51,7 @@ exports.getLatest = async (req, res) => {
       connected: isConnected,
       isLive: isConnected,
       data: formattedData,
-      lastSeen: doc ? doc.timestamp : (store.timestamp || null)
+      lastSeen: doc ? doc.timestamp : (memZone?.timestamp || null)
     });
   } catch (err) {
     console.error('zone3/latest error:', err);
@@ -79,7 +79,7 @@ exports.getAllLatest = async (req, res) => {
           gas: memZone.gas,
           light: memZone.light,
           motor: memZone.motor,
-          timestamp: store.timestamp || new Date(),
+          timestamp: memZone.timestamp || new Date(),
         } : null);
 
     res.status(200).json({
