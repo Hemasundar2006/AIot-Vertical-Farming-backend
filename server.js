@@ -124,16 +124,15 @@ const sendMail = async (subject, text, retries = 2) => {
 /* ================= SOIL MOISTURE STATE TRACK (Spam Avoid) ✅ ================= */
 let lastSoilState = { z1: null, z2: null, z3: null };
 
-/* ================= HELPER: FETCH LATEST SENSOR DATA ================= */
+/* ================= HELPER: FETCH LATEST SENSOR DATA (TEMPERATURE ROUTE: ZONES 1 & 2 ONLY) ================= */
 const getLatestSensorData = async () => {
   const zoneKeys = [
     { key: "zone1", id: 1 },
-    { key: "zone2", id: 2 },
-    { key: "zone3", id: 3 }
+    { key: "zone2", id: 2 }
   ];
 
   const existingMap = new Map(
-    (latestData.zones || []).map(z => [z.id, z])
+    (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
   );
 
   try {
@@ -145,6 +144,7 @@ const getLatestSensorData = async () => {
         if (doc) {
           existingMap.set(z.id, {
             id: z.id,
+            zone: z.key,
             soil: doc.soil,
             temperature: doc.temp,
             humidity: doc.hum,
@@ -160,17 +160,16 @@ const getLatestSensorData = async () => {
       }
     }
 
-    const allZones = Array.from(existingMap.values()).sort((a, b) => a.id - b.id);
-    latestData.zones = allZones;
-    latestData.timestamp = maxTimestamp || new Date();
+    const zones1and2 = [existingMap.get(1), existingMap.get(2)].filter(Boolean);
 
     return {
-      zones: allZones,
-      timestamp: latestData.timestamp
+      zones: zones1and2,
+      timestamp: maxTimestamp || new Date()
     };
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
-    return latestData || { zones: [], timestamp: null };
+    const fallbackZones = (latestData.zones || []).filter(z => z.id === 1 || z.id === 2);
+    return { zones: fallbackZones, timestamp: latestData.timestamp || null };
   }
 };
 
@@ -336,14 +335,20 @@ const handleZone3Post = async (req, res) => {
   try {
     let zonesList = parse3ZonesPayload(req.body);
 
-    // Filter to only keep 3rd zone
-    zonesList = zonesList.filter(z => z.id === 3);
-
-    if (zonesList.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payload: zone 3 data is required"
-      });
+    const zone3Item = zonesList.find(z => z.id === 3);
+    if (zone3Item) {
+      zonesList = [zone3Item];
+    } else if (zonesList.length > 0) {
+      zonesList = [{ ...zonesList[0], id: 3, zone: 'zone3' }];
+    } else {
+      const b = req.body || {};
+      const soil = Number(b.soil ?? b.moisture ?? 0);
+      const temp = Number(b.temperature ?? b.temp ?? 0);
+      const hum = Number(b.humidity ?? b.hum ?? 0);
+      const gas = Number(b.gas ?? 0);
+      const light = Number(b.light ?? b.ldr ?? 0);
+      const motor = (b.motor || b.relay || "OFF").toString().toUpperCase() === "ON" ? "ON" : "OFF";
+      zonesList = [{ id: 3, zone: 'zone3', soil, temp, temperature: temp, hum, humidity: hum, gas, light, motor }];
     }
 
     // ✅ Store latest data in memory via shared store

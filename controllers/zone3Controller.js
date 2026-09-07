@@ -210,48 +210,26 @@ exports.receiveData = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid payload' });
     }
 
-    // ── Parse flexible payload from ESP32 ────────────────────────────────────
-    // Exclude 1st and 2nd zones completely. Only accept Zone 3 data.
-    let raw = null;
+    // ── Parse flexible single-zone payload from ESP32 ────────────────────────
+    let raw = body;
 
     if (body.zone3 && typeof body.zone3 === 'object') {
       raw = body.zone3;
+    } else if (body.z3 && typeof body.z3 === 'object') {
+      raw = body.z3;
     } else if (Array.isArray(body.zones)) {
-      raw = body.zones.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || null;
+      raw = body.zones.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || body.zones[0] || {};
     } else if (Array.isArray(body)) {
-      raw = body.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || null;
-    } else {
-      // Direct object: check if it's explicitly designated as zone 1 or zone 2
-      const explicitId = Number(body.id || body.zoneId);
-      const explicitZone = String(body.zone || '').toLowerCase();
-
-      if (explicitId === 1 || explicitId === 2 || explicitZone === 'zone1' || explicitZone === 'zone2') {
-        return res.status(400).json({
-          success: false,
-          message: 'Zone 1 and 2 data is not accepted on Zone 3 route. Only Zone 3 data is accepted.',
-        });
-      }
-
-      // If zone 1 or 2 keys exist without zone 3
-      if ((body.zone1 || body.zone2 || body.z1 || body.z2) && !body.zone3 && !body.z3) {
-        return res.status(400).json({
-          success: false,
-          message: 'Zone 1 and 2 data is not accepted on Zone 3 route. Only Zone 3 data is accepted.',
-        });
-      }
-
-      if (body.z3 && typeof body.z3 === 'object') {
-        raw = body.z3;
-      } else {
-        // Flat payload for Zone 3
-        raw = body;
-      }
+      raw = body.find((z) => Number(z.id || z.zoneId) === 3 || z.zone === 'zone3') || body[0] || {};
+    } else if (body.zone1 && typeof body.zone1 === 'object' && !body.zone2 && !body.zone3) {
+      // Single zone sent to zone 3 endpoint
+      raw = body.zone1;
     }
 
-    if (!raw) {
+    if (!raw || typeof raw !== 'object') {
       return res.status(400).json({
         success: false,
-        message: 'No Zone 3 data found in payload. Zone 1 and 2 data is excluded.',
+        message: 'No sensor data found in payload',
       });
     }
 
