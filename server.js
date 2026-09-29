@@ -18,7 +18,7 @@ const userRoutes = require('./routes/userRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const projectRoutes = require('./routes/projectRoutes');
 const zone3Routes = require('./routes/zone3Routes');
-const { store: latestData, upsertZone } = require('./shared/latestData');
+const { store: latestData, upsertZone, setMode } = require('./shared/latestData');
 const SensorData = require('./models/SensorData');
 
 // Load cron jobs
@@ -132,7 +132,7 @@ const getLatestSensorData = async () => {
   ];
 
   const now = Date.now();
-  const TIMEOUT_MS = 60000; // 60s timeout for live status
+  const TIMEOUT_MS = 6000; // 6s timeout for live status
 
   const existingMap = new Map(
     (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
@@ -168,16 +168,30 @@ const getLatestSensorData = async () => {
         if (z.timestamp && (!maxTimestamp || new Date(z.timestamp) > maxTimestamp)) {
           maxTimestamp = new Date(z.timestamp);
         }
-        return {
+        let returnObj = {
           ...z,
-          connected: isLive,
           isLive: isLive
         };
+        
+        delete returnObj.connected;
+        delete returnObj.temp;
+        delete returnObj.hum;
+        
+        if (!isLive) {
+          returnObj.soil = 0;
+          returnObj.temperature = 0;
+          returnObj.humidity = 0;
+          returnObj.gas = 0;
+          returnObj.light = 0;
+          returnObj.motor = "OFF";
+        }
+        
+        return returnObj;
       });
 
     return {
       zones: zones1and2,
-      timestamp: maxTimestamp || null
+      mode: latestData.mode || "AUTO"
     };
   } catch (err) {
     console.error("⚠️ Failed to fetch latest data from DB:", err.message);
@@ -186,9 +200,22 @@ const getLatestSensorData = async () => {
       .map(z => {
         const ts = z.timestamp ? new Date(z.timestamp).getTime() : 0;
         const isLive = ts > 0 && (now - ts) < TIMEOUT_MS;
-        return { ...z, connected: isLive, isLive };
+        let returnObj = { ...z, isLive: isLive };
+        delete returnObj.connected;
+        delete returnObj.temp;
+        delete returnObj.hum;
+        
+        if (!isLive) {
+          returnObj.soil = 0;
+          returnObj.temperature = 0;
+          returnObj.humidity = 0;
+          returnObj.gas = 0;
+          returnObj.light = 0;
+          returnObj.motor = "OFF";
+        }
+        return returnObj;
       });
-    return { zones: fallbackZones, timestamp: null };
+    return { zones: fallbackZones, mode: latestData.mode || "AUTO" };
   }
 };
 
@@ -286,8 +313,12 @@ const handle3ZonesPost = async (req, res) => {
     }
 
     // ✅ Store latest data in memory via shared store
+    if (req.body && req.body.mode) {
+      setMode(req.body.mode);
+    }
     zonesList.forEach(z => upsertZone({
       id: z.id,
+      zone: z.zone,
       soil: z.soil,
       temperature: z.temperature,
       humidity: z.humidity,
@@ -371,8 +402,12 @@ const handleZone3Post = async (req, res) => {
     }
 
     // ✅ Store latest data in memory via shared store
+    if (req.body && req.body.mode) {
+      setMode(req.body.mode);
+    }
     zonesList.forEach(z => upsertZone({
       id: z.id,
+      zone: z.zone,
       soil: z.soil,
       temperature: z.temperature,
       humidity: z.humidity,
@@ -460,35 +495,17 @@ const handleSingleZoneGet = async (req, res) => {
 };
 
 
-/* ================= REGISTER 3 ZONES POST ROUTES ================= */
-app.post("/3zones", handle3ZonesPost);
-app.post("/3zones_data", handle3ZonesPost);
-app.post("/api/3zones", handle3ZonesPost);
-
-app.post("/temperature", handle3ZonesPost);
+/* ================= REGISTER ZONES 1 & 2 ROUTES ================= */
+app.post("/temperature/zones12", handle3ZonesPost);
+app.get("/temperature/zones12", handle3ZonesGet);
 
 /* ================= REGISTER ZONE 3 ROUTES ================= */
-// NOTE: /api/zone3 routes are handled by zone3Routes (app.use('/api/zone3', zone3Routes))
-// These aliases point directly to the in-server handler for backward compat:
-app.post("/zone3", handleZone3Post);
-app.post("/zone3_data", handleZone3Post);
+app.post("/temperature/zone3", handleZone3Post);
 
 const zone3Controller = require('./controllers/zone3Controller');
-app.get("/zone3", zone3Controller.getLatest);
-app.get("/zone3_data", zone3Controller.getLatest);
-
-/* ================= REGISTER 3 ZONES GET ROUTES ================= */
-app.get("/3zones", handle3ZonesGet);
-app.get("/3zones_data", handle3ZonesGet);
-app.get("/api/3zones", handle3ZonesGet);
-app.get("/get_temperature", async (req, res) => {
-  const data = await getLatestSensorData();
-  res.json(data);
-});
-app.get("/temperature", handle3ZonesGet);
+app.get("/temperature/zone3", zone3Controller.getLatest);
 
 /* ================= REGISTER SINGLE ZONE GET ROUTES ================= */
-app.get("/3zones/:id", handleSingleZoneGet);
 app.get("/zone/:id", handleSingleZoneGet);
 
 // Global error handler middleware (must be after all routes)
@@ -508,11 +525,11 @@ app.use((err, req, res, next) => {
   const message = err.message || 'Internal Server Error';
 
   res.status(statusCode).json({
-    message: process.env.NODE_ENV === 'production' 
-      ? 'Server error' 
+    message: process.env.NODE_ENV === 'production'
+      ? 'Server error'
       : message,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'An error occurred' 
+    error: process.env.NODE_ENV === 'production'
+      ? 'An error occurred'
       : err.stack,
     ...(process.env.NODE_ENV !== 'production' && { details: err }),
   });
@@ -556,23 +573,23 @@ if (!process.env.JWT_SECRET) {
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`🚀 Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  
+
   // Validate environment variables
   if (!process.env.JWT_SECRET) {
     console.error('❌ JWT_SECRET is missing. Set it in Render environment variables.');
   } else {
     console.log('✅ JWT_SECRET is configured');
   }
-  
+
   if (!process.env.MONGO_URI || process.env.MONGO_URI.includes('localhost')) {
     console.warn('⚠️  MONGO_URI appears to be using localhost. Make sure it points to MongoDB Atlas in production.');
   } else {
     console.log('✅ MONGO_URI is configured');
   }
-  
+
   // Attempt to connect to MongoDB
   const connected = await connectDB();
-  
+
   if (!connected) {
     console.warn('Server started but MongoDB not connected. Retrying in 5 seconds...');
     // Retry connection every 5 seconds

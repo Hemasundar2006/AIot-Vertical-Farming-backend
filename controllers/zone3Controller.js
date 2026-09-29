@@ -28,9 +28,9 @@ exports.getLatest = async (req, res) => {
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
       : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 60000; // Disconnected if no ping within 60s
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 6000; // Disconnected if no ping within 6s
 
-    const formattedData = doc
+    let formattedData = doc
       ? formatDoc(doc)
       : {
           id: 'live',
@@ -45,13 +45,34 @@ exports.getLatest = async (req, res) => {
           timestamp: memZone.timestamp || new Date(),
         };
 
+    if (!isConnected) {
+      formattedData.soil = 0;
+      formattedData.temperature = 0;
+      formattedData.humidity = 0;
+      formattedData.gas = 0;
+      formattedData.light = 0;
+      formattedData.motor = "OFF";
+    }
+
     res.status(200).json({
       success: true,
-      zone: 'zone3',
-      connected: isConnected,
-      isLive: isConnected,
-      data: formattedData,
-      lastSeen: doc ? doc.timestamp : (memZone?.timestamp || null)
+      data: {
+        zones: [
+          {
+            id: 3,
+            zone: "zone3",
+            soil: formattedData.soil,
+            temperature: formattedData.temperature,
+            humidity: formattedData.humidity,
+            gas: formattedData.gas,
+            light: formattedData.light,
+            motor: formattedData.motor,
+            timestamp: formattedData.timestamp,
+            isLive: isConnected
+          }
+        ],
+        mode: store.mode || "AUTO"
+      }
     });
   } catch (err) {
     console.error('zone3/latest error:', err);
@@ -67,7 +88,12 @@ exports.getAllLatest = async (req, res) => {
     const doc = await SensorData.findOne({ zone: ZONE3_KEY }).sort({ timestamp: -1 }).lean();
     const memZone = (store.zones || []).find((z) => z.id === 3);
 
-    const formattedData = doc
+    const docTime = doc && doc.timestamp
+      ? new Date(doc.timestamp).getTime()
+      : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 6000;
+
+    let formattedData = doc
       ? formatDoc(doc)
       : (memZone ? {
           id: 'live',
@@ -81,6 +107,15 @@ exports.getAllLatest = async (req, res) => {
           motor: memZone.motor,
           timestamp: memZone.timestamp || new Date(),
         } : null);
+
+    if (formattedData && !isConnected) {
+      formattedData.soil = 0;
+      formattedData.temperature = 0;
+      formattedData.humidity = 0;
+      formattedData.gas = 0;
+      formattedData.light = 0;
+      formattedData.motor = "OFF";
+    }
 
     res.status(200).json({
       success: true,

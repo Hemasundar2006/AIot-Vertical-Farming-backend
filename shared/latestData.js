@@ -7,6 +7,7 @@
 const store = {
   zones: [],
   timestamp: null,
+  mode: 'AUTO',
 };
 
 /**
@@ -28,4 +29,10 @@ function upsertZone(zoneData) {
   store.zones.sort((a, b) => a.id - b.id);
 }
 
-module.exports = { store, upsertZone };
+function setMode(mode) {
+  if (mode) {
+    store.mode = mode;
+  }
+}
+
+module.exports = { store, upsertZone, setMode };
