@@ -28,7 +28,7 @@ exports.getLatest = async (req, res) => {
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
       : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 10000; // Disconnected if no ping within 6s
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 60000; // Disconnected if no ping within 1m
 
     let formattedData = doc
       ? formatDoc(doc)
@@ -91,7 +91,7 @@ exports.getAllLatest = async (req, res) => {
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
       : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 10000;
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 60000;
 
     let formattedData = doc
       ? formatDoc(doc)

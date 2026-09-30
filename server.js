@@ -132,7 +132,7 @@ const getLatestSensorData = async () => {
   ];
 
   const now = Date.now();
-  const TIMEOUT_MS = 6000; // 6s timeout for live status
+  const TIMEOUT_MS = 60000; // 60s timeout for live status
 
   const existingMap = new Map(
     (latestData.zones || []).filter(z => z.id === 1 || z.id === 2).map(z => [z.id, z])
