@@ -28,22 +28,22 @@ exports.getLatest = async (req, res) => {
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
       : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 6000; // Disconnected if no ping within 6s
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 10000; // Disconnected if no ping within 6s
 
     let formattedData = doc
       ? formatDoc(doc)
       : {
-          id: 'live',
-          zone: 'zone3',
-          zoneId: '3',
-          soil: memZone.soil,
-          temperature: memZone.temperature,
-          humidity: memZone.humidity,
-          gas: memZone.gas,
-          light: memZone.light,
-          motor: memZone.motor,
-          timestamp: memZone.timestamp || new Date(),
-        };
+        id: 'live',
+        zone: 'zone3',
+        zoneId: '3',
+        soil: memZone.soil,
+        temperature: memZone.temperature,
+        humidity: memZone.humidity,
+        gas: memZone.gas,
+        light: memZone.light,
+        motor: memZone.motor,
+        timestamp: memZone.timestamp || new Date(),
+      };
 
     if (!isConnected) {
       formattedData.soil = 0;
@@ -91,22 +91,22 @@ exports.getAllLatest = async (req, res) => {
     const docTime = doc && doc.timestamp
       ? new Date(doc.timestamp).getTime()
       : (memZone && memZone.timestamp ? new Date(memZone.timestamp).getTime() : 0);
-    const isConnected = docTime > 0 && (Date.now() - docTime) < 6000;
+    const isConnected = docTime > 0 && (Date.now() - docTime) < 10000;
 
     let formattedData = doc
       ? formatDoc(doc)
       : (memZone ? {
-          id: 'live',
-          zone: 'zone3',
-          zoneId: '3',
-          soil: memZone.soil,
-          temperature: memZone.temperature,
-          humidity: memZone.humidity,
-          gas: memZone.gas,
-          light: memZone.light,
-          motor: memZone.motor,
-          timestamp: memZone.timestamp || new Date(),
-        } : null);
+        id: 'live',
+        zone: 'zone3',
+        zoneId: '3',
+        soil: memZone.soil,
+        temperature: memZone.temperature,
+        humidity: memZone.humidity,
+        gas: memZone.gas,
+        light: memZone.light,
+        motor: memZone.motor,
+        timestamp: memZone.timestamp || new Date(),
+      } : null);
 
     if (formattedData && !isConnected) {
       formattedData.soil = 0;
@@ -182,28 +182,28 @@ exports.getDaily = async (req, res) => {
 // @access Public
 exports.getMonthly = async (req, res) => {
   try {
-    const now   = new Date();
-    const year  = parseInt(req.query.year)  || now.getFullYear();
+    const now = new Date();
+    const year = parseInt(req.query.year) || now.getFullYear();
     const month = parseInt(req.query.month) || now.getMonth() + 1;
 
-    if (year < 2000 || year > 2100)  return res.status(400).json({ success: false, message: 'Year must be 2000-2100' });
-    if (month < 1   || month > 12)   return res.status(400).json({ success: false, message: 'Month must be 1-12' });
+    if (year < 2000 || year > 2100) return res.status(400).json({ success: false, message: 'Year must be 2000-2100' });
+    if (month < 1 || month > 12) return res.status(400).json({ success: false, message: 'Month must be 1-12' });
 
     const data = await SensorData.getMonthlyData(ZONE3_KEY, year, month);
 
     res.status(200).json({
       success: true, zone: 'zone3', year, month, count: data.length,
       data: data.map((d) => ({
-        date:     d._id,
-        avgSoil:  round2(d.avgSoil),
-        avgTemp:  round2(d.avgTemp),
-        avgHum:   round2(d.avgHum),
-        avgGas:   round2(d.avgGas),
+        date: d._id,
+        avgSoil: round2(d.avgSoil),
+        avgTemp: round2(d.avgTemp),
+        avgHum: round2(d.avgHum),
+        avgGas: round2(d.avgGas),
         avgLight: round2(d.avgLight),
-        maxTemp:  d.maxTemp,
-        minTemp:  d.minTemp,
-        maxHum:   d.maxHum,
-        minHum:   d.minHum,
+        maxTemp: d.maxTemp,
+        minTemp: d.minTemp,
+        maxHum: d.maxHum,
+        minHum: d.minHum,
         readings: d.count,
       })),
     });
@@ -218,9 +218,9 @@ exports.getMonthly = async (req, res) => {
 // @access Public
 exports.getStats = async (req, res) => {
   try {
-    const now  = new Date();
+    const now = new Date();
     const from = req.query.from ? new Date(req.query.from) : new Date(now - 24 * 60 * 60 * 1000);
-    const to   = req.query.to   ? new Date(req.query.to)   : now;
+    const to = req.query.to ? new Date(req.query.to) : now;
 
     if (isNaN(from.getTime()) || isNaN(to.getTime())) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date' });
@@ -268,10 +268,10 @@ exports.receiveData = async (req, res) => {
       });
     }
 
-    const soil  = Number(raw.soil ?? raw.moisture ?? raw.soilMoisture ?? 0);
-    const temp  = Number(raw.temperature ?? raw.temp ?? 0);
-    const hum   = Number(raw.humidity   ?? raw.hum  ?? 0);
-    const gas   = Number(raw.gas   ?? 0);
+    const soil = Number(raw.soil ?? raw.moisture ?? raw.soilMoisture ?? 0);
+    const temp = Number(raw.temperature ?? raw.temp ?? 0);
+    const hum = Number(raw.humidity ?? raw.hum ?? 0);
+    const gas = Number(raw.gas ?? 0);
     const light = Number(raw.light ?? raw.ldr ?? 0);
     const relay = String(raw.motor ?? raw.relay ?? 'OFF').toUpperCase() === 'ON' ? 'ON' : 'OFF';
 
@@ -291,8 +291,8 @@ exports.receiveData = async (req, res) => {
     // ── Persist to MongoDB ───────────────────────────────────────────────────
     try {
       await SensorData.create({
-        zone:      ZONE3_KEY,
-        zoneId:    '3',
+        zone: ZONE3_KEY,
+        zoneId: '3',
         soil,
         temp,
         hum,
@@ -320,34 +320,34 @@ exports.receiveData = async (req, res) => {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function formatDoc(doc) {
   return {
-    id:          doc._id,
-    zone:        doc.zone,
-    zoneId:      doc.zoneId,
-    soil:        doc.soil,
+    id: doc._id,
+    zone: doc.zone,
+    zoneId: doc.zoneId,
+    soil: doc.soil,
     temperature: doc.temp,
-    humidity:    doc.hum,
-    gas:         doc.gas,
-    light:       doc.light,
-    motor:       doc.relay,
-    timestamp:   doc.timestamp,
+    humidity: doc.hum,
+    gas: doc.gas,
+    light: doc.light,
+    motor: doc.relay,
+    timestamp: doc.timestamp,
   };
 }
 
 function buildSummary(data) {
   if (!data || data.length === 0) return null;
   return {
-    count:    data.length,
-    avgSoil:  round2(avg(data, 'soil')),
-    avgTemp:  round2(avg(data, 'temp')),
-    avgHum:   round2(avg(data, 'hum')),
-    avgGas:   round2(avg(data, 'gas')),
+    count: data.length,
+    avgSoil: round2(avg(data, 'soil')),
+    avgTemp: round2(avg(data, 'temp')),
+    avgHum: round2(avg(data, 'hum')),
+    avgGas: round2(avg(data, 'gas')),
     avgLight: round2(avg(data, 'light')),
-    maxTemp:  Math.max(...data.map((d) => d.temp)),
-    minTemp:  Math.min(...data.map((d) => d.temp)),
-    maxHum:   Math.max(...data.map((d) => d.hum)),
-    minHum:   Math.min(...data.map((d) => d.hum)),
+    maxTemp: Math.max(...data.map((d) => d.temp)),
+    minTemp: Math.min(...data.map((d) => d.temp)),
+    maxHum: Math.max(...data.map((d) => d.hum)),
+    minHum: Math.min(...data.map((d) => d.hum)),
   };
 }
 
 function avg(arr, key) { return arr.reduce((s, d) => s + (d[key] || 0), 0) / arr.length; }
-function round2(n)     { return Math.round(n * 100) / 100; }
+function round2(n) { return Math.round(n * 100) / 100; }
